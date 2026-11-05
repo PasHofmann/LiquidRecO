@@ -117,9 +117,9 @@ class ModuleBase(ABC):
             return
         
         self._events_seen +=1
-
-        if event["id"] != 100009:
-            return
+        if len(parameters.ModuleBase_SelectedEvents) > 0:
+            if event["id"] not in parameters.ModuleBase_SelectedEvents:
+                return
         
         ## check that all the required stuff is in the event
         self._check_requirements(event)

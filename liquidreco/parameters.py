@@ -3,7 +3,7 @@
 #   HoughTransform2D
 #HoughTransform2D_DBSCAN_epsilon = 2.5
 HoughTransform2D_DBSCAN_epsilon = 40.0
-HoughTransform2D_TimeSlice_epsilon = 6.
+#HoughTransform2D_TimeSlice_epsilon = 6.
 HoughTransform2D_neighbour_dist = 1.5
 #HoughTransform2D_min_points_per_line = 5
 HoughTransform2D_min_points_per_line = 100
@@ -52,7 +52,7 @@ insert_vertices_threshold = 2.
 
 #   Unasigned_refit_lines
 Unasigned_refit_lines_neighbour_dist = 1.5
-Unasigned_refit_lines_TimeSlice_epsilon = 6.
+#Unasigned_refit_lines_TimeSlice_epsilon = 6.
 Unasigned_refit_lines_min_points_per_line = 3
 Unasigned_refit_lines_lattice_step_size = 1.
 Unasigned_refit_lines_DBSCAN_epsilon = 3.
@@ -113,7 +113,8 @@ z_range_fiber_dist = .55
 turning_point_matches_sigma_z = 5
 turning_point_matches_unmatched_penalty = .5
 
-
+#ModuleBase
+ModuleBase_SelectedEvents = []
 
 
 
