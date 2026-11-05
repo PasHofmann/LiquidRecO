@@ -6,6 +6,8 @@ from jsonargparse import ActionSubCommands, ArgumentParser, Namespace
 
 from liquidreco.event import Event
 
+from liquidreco import parameters
+
 class ModuleBase(ABC):
     """Base class of modules that can be run over events.
     
@@ -30,6 +32,7 @@ class ModuleBase(ABC):
 
         self._arg_parser: ArgumentParser = None
         self.args: typing.Union[Namespace, typing.Dict[str, typing.Any]] = None
+        self._events_seen = 0
 
     @abc.abstractmethod
     def _process(self, event: Event) -> None:
@@ -109,8 +112,18 @@ class ModuleBase(ABC):
         :raises ValueError: if the given event does not contain the specified pre-requisite inputs to at the start, or the promised outputs at the end
         """
 
+        ## check if the events should still be processed
+        if self._events_seen >= parameters.number_of_events:
+            return
+        
+        self._events_seen +=1
+
+        if event["id"] != 100009:
+            return
+        
         ## check that all the required stuff is in the event
         self._check_requirements(event)
+
 
         self._process(event)
 

@@ -3,10 +3,13 @@ from liquidreco.event import Event
 
 from jsonargparse import ArgumentParser
 
+from liquidreco.save_used_modules import log_module_name
+
 class WeightScaling(ModuleBase):
 
     def __init__(self):
         super().__init__()
+        #log_module_name("WeightScaling", file_path="modules.txt")
 
         self.requirements = ["raw_weights"]
         self.outputs = ["raw_weights"]

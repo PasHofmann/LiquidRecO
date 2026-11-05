@@ -7,6 +7,8 @@ from liquidreco.event import Event
 from liquidreco.hit import Hit, Hit2D, Hit3D
 from liquidreco.geometry import GeometryManager
 
+from liquidreco.save_used_modules import log_module_name
+
 class HitBuilder2D(ModuleBase):
     """Absolute base level module to build 2D hits from raw hit information
 
@@ -22,6 +24,7 @@ class HitBuilder2D(ModuleBase):
 
         self.requirements = ["raw_positions", "raw_weights", "raw_times"]
         self.outputs = ["x_fiber_hits", "y_fiber_hits", "z_fiber_hits"]
+        #self.logged = False
 
     def _initialise(self):
         
@@ -32,6 +35,7 @@ class HitBuilder2D(ModuleBase):
 
     def _process(self, event: Event) -> None:
 
+        #self.logged = True
         positions = event["raw_positions"]
         weights = event["raw_weights"]
         times = event["raw_times"]
@@ -119,7 +123,9 @@ class HitBuilder2D(ModuleBase):
         event.add_data("x_fiber_hits", x_fiber_hits)
         event.add_data("y_fiber_hits", y_fiber_hits)
         event.add_data("z_fiber_hits", z_fiber_hits)
-        
+
+    def _finalise(self):
+        log_module_name("HitBuilder2D", file_path="modules.txt")
 
 
 class HitBuilder3D(ModuleBase):
@@ -303,3 +309,7 @@ class HitBuilder3D(ModuleBase):
         event.add_data("3d_hits", three_fiber_hits)
         
         return
+
+    def _finalise(self):
+        log_module_name("HitBuilder2D", file_path="modules.txt")
+

@@ -1,4 +1,5 @@
 import typing
+from  liquidreco.Tracks import SimpleTrack
 
 class Event():
     """Holds event data, is read from and written to by the various modules

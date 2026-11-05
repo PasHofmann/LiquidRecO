@@ -2,6 +2,7 @@
 
 """
 
+
 import numpy as np
 from matplotlib import pyplot as plt
 from liquidreco.event import Event
@@ -26,14 +27,18 @@ from sklearn.neighbors import NearestNeighbors
 from liquidreco.plotting import make_corner_plot, make_rotating_gif, make_corner_plot_fiber_hits
 from liquidreco.modules.module_base import ModuleBase
 
+from RANSAC_fit.RANSACRegressor import fit_lines_ransac, Line2D, best_of_n #Pasal test
+from liquidreco import parameters
+
+from liquidreco.save_used_modules import log_module_name
+
 class HoughTransform2D(ModuleBase):
     """ Performs simple Hough line transform on 2D hits
 
     Right now only makes plots of the fitted lines, doesn't save them to the event
     """
 
-    def __init__(self):
-        
+    def __init__(self):        
         super().__init__()
 
         self.requirements = ["x_fiber_hits", "y_fiber_hits", "z_fiber_hits"]
@@ -57,12 +62,17 @@ class HoughTransform2D(ModuleBase):
         self.max_plot_charge = self.args.max_plot_charge
 
         self.hough_finder = Hough3D(
-            neighbour_dist=1.5, min_points_per_line=5, lattice_step_size=1.0
-        )
+            neighbour_dist=parameters.HoughTransform2D_neighbour_dist, min_points_per_line=parameters.HoughTransform2D_min_points_per_line, lattice_step_size=parameters.HoughTransform2D_lattice_step_size
+        ) #they were neighbour_dist=1.5, min_points_per_line=5, lattice_step_size=1.
 
-        self._pdf = matplotlib.backends.backend_pdf.PdfPages("Hough2D-event-examples.pdf")
+        self._pdf = matplotlib.backends.backend_pdf.PdfPages("Hough2D-event-examples.pdf") #fater?
 
-        self.clusterer = DBSCAN(40.0)
+        #self.clusterer = DBSCAN(40.0)
+        self.clusterer = DBSCAN(parameters.HoughTransform2D_DBSCAN_epsilon)
+        self.time_clusterer = DBSCAN(eps= parameters.HoughTransform2D_TimeSlice_epsilon)
+        
+
+
 
     def _process(self, event:Event):
         """ Perform Hough transform on an event and save the result to a given file
@@ -70,6 +80,8 @@ class HoughTransform2D(ModuleBase):
         :param event: Object describing the hits in an event
         :type event: Event
         """
+
+        event.add_data("min_charge_thresh", self.min_charge_thresh)
 
         x_fiber_hits = event["x_fiber_hits"]
         y_fiber_hits = event["y_fiber_hits"]
@@ -96,11 +108,14 @@ class HoughTransform2D(ModuleBase):
         [[1,1], [0,0], [1,0]]
         ):
 
-            data = np.array(
-                [[getattr(hit, u_name), getattr(hit, v_name), 0.0] for hit in fiber_hits if hit.weight > self.min_charge_thresh]
-            )
+            data_with_time = np.array([[getattr(hit, u_name), getattr(hit, v_name), 0.0, hit.time] for hit in fiber_hits if hit.weight > self.min_charge_thresh])
+            
 
-            if data.shape[0] == 0:
+            in_and_f_name="in_and_f_"+u_name+"_"+v_name #Pascal
+            all_linePoints=np.empty((0,2,2))
+            event.add_data(in_and_f_name, all_linePoints)
+
+            if data_with_time.shape[0] == 0:
                 # maybe there are no hits above threshold
                 
                 plt.tight_layout()
@@ -110,17 +125,40 @@ class HoughTransform2D(ModuleBase):
 
                 return
 
-            cluster_ids = self.clusterer.fit_predict(data)
+            time = data_with_time[:, -1]
+            time_cluster_ids = self.time_clusterer.fit_predict(time.reshape(-1, 1))
 
-            for cluster_id in np.unique(cluster_ids):
-                if cluster_id == -1:
-                    # -1 is id for "noise"
+            line_index = 0 
+            fixed_cluster_ids = np.full(len(data_with_time), -1, dtype=int) 
+            for time_cluster_id in np.unique(time_cluster_ids):
+                if time_cluster_id == -1:
                     continue
+                in_slice = np.flatnonzero(time_cluster_ids == time_cluster_id)
+                data_slice = data_with_time[in_slice, :-1]
+                cluster_ids = self.clusterer.fit_predict(data_slice)
 
-                linePoints = self.hough_finder(data[cluster_ids == cluster_id, :])
-            
-                for i in range(linePoints.shape[0]):
-                    axs[ax_ids[0], ax_ids[1]].plot(linePoints[i, :, 0], linePoints[i, :, 1])
+
+                for cluster_id in np.unique(cluster_ids):
+
+                    if cluster_id == -1:
+                        #fixed_cluster_ids[in_slice[cluster_ids == cluster_id]] = -1
+                        continue
+                    fixed_cluster_ids[in_slice[cluster_ids == cluster_id]] = line_index
+                    line_index += 1
+
+                    linePoints = self.hough_finder(data_slice[cluster_ids == cluster_id, :]) 
+                    print(f"\n len(data_slice[cluster_ids == {cluster_id}, :]) = {len(data_slice[cluster_ids == cluster_id, :])}")
+                    all_linePoints=np.concatenate([all_linePoints, linePoints[:,:,:2]], axis=0) 
+
+                    for i in range(linePoints.shape[0]):
+                        axs[ax_ids[0], ax_ids[1]].plot(linePoints[i, :, 0], linePoints[i, :, 1])
+
+            line_index_name = "line_index_" + u_name + v_name
+            event.add_data(line_index_name, fixed_cluster_ids)
+            event.add_data(in_and_f_name, all_linePoints) #Pascal
+            #print("\n"+in_and_f_name+"=", event[in_and_f_name])
+
+
 
         plt.tight_layout()
 
@@ -129,7 +167,131 @@ class HoughTransform2D(ModuleBase):
         plt.close(fig)
     
     def _finalise(self):
+        log_module_name("HoughTransform2D", file_path="modules.txt")
+        print("\n finalise")
         self._pdf.close()
+        print("\n closed file")
+
+class RANSAC2D(ModuleBase):
+    """ Performs simple Hough line transform on 2D hits
+
+    Right now only makes plots of the fitted lines, doesn't save them to the event
+    """
+
+    def __init__(self):        
+        super().__init__()
+
+        self.requirements = ["x_fiber_hits", "y_fiber_hits", "z_fiber_hits"]
+
+    def _setup_cli_options(self, parser):
+
+        parser.add_argument(
+            "--min-charge-thresh", 
+            help="Minimum charge that a hit must have to be included in the track fitting", 
+            required = False, default = 80.0, type = float,
+        )
+        parser.add_argument(
+            "--max-plot-charge", 
+            help="Maximum charge for plots", 
+            required = False, default = 100.0, type = float,
+        )
+        
+    def _initialise(self) -> None:
+        
+        self.min_charge_thresh = self.args.min_charge_thresh
+        self.max_plot_charge = self.args.max_plot_charge
+
+
+        #self._pdf = matplotlib.backends.backend_pdf.PdfPages("Hough2D-event-examples.pdf") #fater?
+
+        self.clusterer = DBSCAN(parameters.RANSAC2D_DBSCAN_epsilon)
+        #self.clusterer = DBSCAN(2.5)
+        
+
+
+
+    def _process(self, event:Event):
+        """ Perform Hough transform on an event and save the result to a given file
+
+        :param event: Object describing the hits in an event
+        :type event: Event
+        """
+
+        event.add_data("min_charge_thresh", self.min_charge_thresh)
+
+        x_fiber_hits = event["x_fiber_hits"]
+        y_fiber_hits = event["y_fiber_hits"]
+        z_fiber_hits = event["z_fiber_hits"]
+
+        #fig, axs = plt.subplots(2, 2, sharex='col', sharey='row', figsize=(5, 5)) #fater?
+        #fig.suptitle("RANSAC 2D")
+
+        #make_corner_plot_fiber_hits(fig, axs, x_fiber_hits, y_fiber_hits, z_fiber_hits)
+
+        for fiber_hits, u_name, v_name, ax_ids in zip([
+            x_fiber_hits,
+            y_fiber_hits,
+            z_fiber_hits
+        ],
+        ["z", "x", "x"],
+        ["y", "z", "y"],
+        [[1,1], [0,0], [1,0]]
+        ):
+
+            data = np.array(
+                [[getattr(hit, u_name), getattr(hit, v_name), 0.0] for hit in fiber_hits if hit.weight > self.min_charge_thresh]
+            )
+
+            in_and_f_name="in_and_f_"+u_name+"_"+v_name #Pascal
+            all_linePoints=np.empty((0,2,2))
+            event.add_data(in_and_f_name, all_linePoints)
+
+            if data.shape[0] == 0:
+                # maybe there are no hits above threshold
+                
+                #plt.tight_layout() #fater?
+
+                #self._pdf.savefig(fig) #fater?
+                #fig.clf() #fater?
+
+                return
+
+            cluster_ids = self.clusterer.fit_predict(data)
+
+
+            for cluster_id in np.unique(cluster_ids):
+                if cluster_id == -1:
+                    # -1 is id for "noise"
+                    continue
+
+                #linePoints = fit_lines_ransac(data[cluster_ids == cluster_id, :], threshold = 1., max_lines=10, n_iterations=1000) #testing RANSAC
+                linePoints = best_of_n(data[cluster_ids == cluster_id, :], Line2D, n_repeats=parameters.RANSAC2D_n_repeats, line_penalty=parameters.RANSAC2D_line_penalty, min_inliers=parameters.RANSAC2D_min_inliers, max_lines=parameters.RANSAC2D_max_lines, min_samples=parameters.RANSAC2D_min_samples, residual_threshold=parameters.RANSAC2D_residual_threshold, max_trials=parameters.RANSAC2D_max_trials) #testing RANSAC
+                for start_end in linePoints:
+                    all_linePoints=np.concatenate([all_linePoints, start_end[np.newaxis, :, :2]], axis=0)
+
+
+
+                #all_linePoints=np.concatenate([all_linePoints, linePoints[:,:,:2]], axis=0) 
+                
+            #for i in range(all_linePoints.shape[0]):
+                #axs[ax_ids[0], ax_ids[1]].plot(all_linePoints[i, :, 0], all_linePoints[i, :, 1]) #fater?
+
+            event.add_data(in_and_f_name, all_linePoints) #Pascal
+            #print("\n"+in_and_f_name+"=", event[in_and_f_name])
+
+
+
+        plt.tight_layout()
+
+        #self._pdf.savefig(fig) #fater?
+
+        #plt.close(fig) #fater?
+    
+    def _finalise(self):
+        log_module_name("RANSAC2D", file_path="modules.txt")
+        print("\n finalise")
+        #self._pdf.close() #fater?
+        print("\n closed file")
 
 class HoughTransform3D(ModuleBase):
     """ Performs simple Hough line transform on 3D hits
@@ -137,8 +299,7 @@ class HoughTransform3D(ModuleBase):
     Right now only makes plots of the fitted lines, doesn't save them to the event
     """
 
-    def __init__(self):
-        
+    def __init__(self):        
         super().__init__()
 
         self.requirements = ["3d_hits"]
@@ -245,6 +406,7 @@ class HoughTransform3D(ModuleBase):
         plt.close(fig)
     
     def _finalise(self):
+        log_module_name("HoughTransform3D", file_path="modules.txt")
         self._pdf.close()
         self._corner_pdf.close()
     
@@ -400,7 +562,6 @@ class LocalMeanDBSCAN(ModuleBase):
             dbscan_eps = 9.0,
             min_charge_thresh = 0.0
     ):
-        
         raise NotImplementedError("This thing is BUSTED")
         # TODO: Fix this shit
         

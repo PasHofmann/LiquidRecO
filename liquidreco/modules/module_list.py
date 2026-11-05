@@ -4,10 +4,18 @@ from liquidreco.base import Singleton
 
 from liquidreco.modules.module_base import ModuleBase
 from liquidreco.modules.peak_finding import HesseRidgeDetection2D, HesseRidgeDetection3D, PeakFinder2D
-from liquidreco.modules.reconstruction import HoughTransform2D, HoughTransform3D, LocalMeanDBSCAN, MinimumSpanningTree2D
+from liquidreco.modules.reconstruction import HoughTransform2D, HoughTransform3D, LocalMeanDBSCAN, MinimumSpanningTree2D, RANSAC2D
 from liquidreco.modules.hit_building import HitBuilder2D, HitBuilder3D
 from liquidreco.modules.utility import WeightScaling
 from liquidreco.modules.plotting import HitPlotter2D, HitPlotter3D
+
+from liquidreco.modules.Hit_assigning import AssignHits #Pascal
+from liquidreco.modules.Track_finding import CutLines, Refit_lines, Find_simple_tracks, Ransac_refit_lines, Refit_lines_TLS, Unasigned_refit_lines, Unasigned_RANSAC_refit_lines
+from liquidreco.modules.tree_making import MakeTree
+from liquidreco.modules.plot_HoughSpace import HoughTransformPlot
+from liquidreco.modules.ThreeD_Matching import ThreeDMatching
+from liquidreco.modules.Soft_ThreeD_Matching import Find_candidate_tracks, SoftThreeDMatching, Muon_Main_track_statistics, Build_ThreeD_tracks
+
     
 class ModuleList(metaclass=Singleton):
 
@@ -82,8 +90,30 @@ ModuleList().register(PeakFinder2D)
 ModuleList().register(HoughTransform2D)
 ModuleList().register(HoughTransform3D)
 ModuleList().register(MinimumSpanningTree2D)
+
+ModuleList().register(AssignHits) #Pascal
+ModuleList().register(CutLines)
+ModuleList().register(Refit_lines)
+ModuleList().register(Find_simple_tracks)
+ModuleList().register(Ransac_refit_lines)
+ModuleList().register(Refit_lines_TLS)
+ModuleList().register(Unasigned_refit_lines)
+ModuleList().register(HoughTransformPlot)
+ModuleList().register(RANSAC2D)
+ModuleList().register(Unasigned_RANSAC_refit_lines)
+
+#3D matching
+ModuleList().register(ThreeDMatching)
+ModuleList().register(Find_candidate_tracks)
+ModuleList().register(SoftThreeDMatching)
+ModuleList().register(Build_ThreeD_tracks)
 #ModuleList().register(LocalMeanDBSCAN) <- this thing is mad broken... maybe one day it will be fixed
 
 ## plotting
 ModuleList().register(HitPlotter2D)
 ModuleList().register(HitPlotter3D)
+
+##ROOT Tree
+ModuleList().register(MakeTree)
+##Statistics
+ModuleList().register(Muon_Main_track_statistics)

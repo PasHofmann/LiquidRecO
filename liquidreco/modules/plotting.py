@@ -4,10 +4,11 @@ from matplotlib import pyplot as plt
 from liquidreco.plotting import make_corner_plot, make_corner_plot_fiber_hits, make_rotating_gif
 from liquidreco.modules.module_base import ModuleBase
 from liquidreco.event import Event
+from liquidreco.save_used_modules import log_module_name
 
 class HitPlotter2D(ModuleBase):
     def __init__(self):
-
+        #log_module_name("HitPlotter2D", file_path="modules.txt")
         super().__init__()
           
         self.requirements = ["x_fiber_hits", "y_fiber_hits", "z_fiber_hits"]
@@ -67,6 +68,7 @@ class HitPlotter2D(ModuleBase):
 class HitPlotter3D(ModuleBase):
 
     def __init__(self):
+        #log_module_name("HitPlotter3D", file_path="modules.txt")
 
         super().__init__()
 
