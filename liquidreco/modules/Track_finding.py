@@ -576,7 +576,6 @@ class Unasigned_refit_lines(ModuleBase):
             neighbour_dist=parameters.Unasigned_refit_lines_neighbour_dist, min_points_per_line=parameters.Unasigned_refit_lines_min_points_per_line, lattice_step_size=parameters.Unasigned_refit_lines_lattice_step_size
         )
         self.clusterer = DBSCAN(parameters.Unasigned_refit_lines_DBSCAN_epsilon, min_samples=2)
-        self.time_clusterer = DBSCAN(eps= parameters.Unasigned_refit_lines_TimeSlice_epsilon, min_samples=2)
     
     def _process(self, event:Event):
         self.min_charge_thresh=event["min_charge_thresh"]
@@ -592,32 +591,26 @@ class Unasigned_refit_lines(ModuleBase):
             all_linePoints = event[in_and_f_name]
             number_of_tracks = len(event[in_and_f_name])
             data = data_2D(fiber_hits, u_name, v_name, self.min_charge_thresh)
-            time = np.array([hit.time for hit in fiber_hits if hit.weight > self.min_charge_thresh])
             
             line_index_name = "line_index_" + u_name + v_name
             line_index=np.array(event[line_index_name])
             mask = line_index == -1
             hits=np.column_stack((data[:, 0], data[:, 1], np.zeros(len(data[:, 0]))))
             selected = hits[mask]
-            selected_time = time[mask]
             if len(selected) == 0:
                 continue
-            time_cluster_ids = self.time_clusterer.fit_predict(selected_time.reshape(-1, 1))
-            for time_cluster_id in np.unique(time_cluster_ids):
-                if time_cluster_id == -1:
+            cluster_ids = self.clusterer.fit_predict(selected)
+            for cluster_id in np.unique(cluster_ids):
+                if cluster_id == -1:
+                    # -1 is id for "noise"
                     continue
-                cluster_ids = self.clusterer.fit_predict(selected[time_cluster_ids==time_cluster_id])
-                for cluster_id in np.unique(cluster_ids):
-                    if cluster_id == -1:
-                        # -1 is id for "noise"
-                        continue
-                    cluster_points = hits[mask][time_cluster_ids==time_cluster_id][cluster_ids == cluster_id]
-                    if len(cluster_points) < parameters.Unasigned_refit_lines_min_points_per_cluster:
-                        #linePoints = None
-                        continue
-                    else:
-                        linePoints = self.hough_finder(cluster_points)
-                        all_linePoints=np.concatenate([all_linePoints, linePoints[:,:,:2]], axis=0)
+                cluster_points = hits[mask][cluster_ids == cluster_id]
+                if len(cluster_points) < parameters.Unasigned_refit_lines_min_points_per_cluster:
+                    #linePoints = None
+                    continue
+                else:
+                    linePoints = self.hough_finder(cluster_points)
+                    all_linePoints=np.concatenate([all_linePoints, linePoints[:,:,:2]], axis=0)
             event.add_data(in_and_f_name, all_linePoints)
 
     def _finalise(self):

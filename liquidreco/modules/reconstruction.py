@@ -69,7 +69,6 @@ class HoughTransform2D(ModuleBase):
 
         #self.clusterer = DBSCAN(40.0)
         self.clusterer = DBSCAN(parameters.HoughTransform2D_DBSCAN_epsilon)
-        self.time_clusterer = DBSCAN(eps= parameters.HoughTransform2D_TimeSlice_epsilon)
         
 
 
@@ -108,14 +107,14 @@ class HoughTransform2D(ModuleBase):
         [[1,1], [0,0], [1,0]]
         ):
 
-            data_with_time = np.array([[getattr(hit, u_name), getattr(hit, v_name), 0.0, hit.time] for hit in fiber_hits if hit.weight > self.min_charge_thresh])
+            data = np.array([[getattr(hit, u_name), getattr(hit, v_name), 0.0] for hit in fiber_hits if hit.weight > self.min_charge_thresh])
             
 
             in_and_f_name="in_and_f_"+u_name+"_"+v_name #Pascal
             all_linePoints=np.empty((0,2,2))
             event.add_data(in_and_f_name, all_linePoints)
 
-            if data_with_time.shape[0] == 0:
+            if data.shape[0] == 0:
                 # maybe there are no hits above threshold
                 
                 plt.tight_layout()
@@ -125,36 +124,17 @@ class HoughTransform2D(ModuleBase):
 
                 return
 
-            time = data_with_time[:, -1]
-            time_cluster_ids = self.time_clusterer.fit_predict(time.reshape(-1, 1))
-
-            line_index = 0 
-            fixed_cluster_ids = np.full(len(data_with_time), -1, dtype=int) 
-            for time_cluster_id in np.unique(time_cluster_ids):
-                if time_cluster_id == -1:
+            cluster_ids = self.clusterer.fit_predict(data)
+            for cluster_id in np.unique(cluster_ids):
+                if cluster_id == -1:
                     continue
-                in_slice = np.flatnonzero(time_cluster_ids == time_cluster_id)
-                data_slice = data_with_time[in_slice, :-1]
-                cluster_ids = self.clusterer.fit_predict(data_slice)
-
-
-                for cluster_id in np.unique(cluster_ids):
-
-                    if cluster_id == -1:
-                        #fixed_cluster_ids[in_slice[cluster_ids == cluster_id]] = -1
-                        continue
-                    fixed_cluster_ids[in_slice[cluster_ids == cluster_id]] = line_index
-                    line_index += 1
-
-                    linePoints = self.hough_finder(data_slice[cluster_ids == cluster_id, :]) 
-                    print(f"\n len(data_slice[cluster_ids == {cluster_id}, :]) = {len(data_slice[cluster_ids == cluster_id, :])}")
-                    all_linePoints=np.concatenate([all_linePoints, linePoints[:,:,:2]], axis=0) 
-
-                    for i in range(linePoints.shape[0]):
-                        axs[ax_ids[0], ax_ids[1]].plot(linePoints[i, :, 0], linePoints[i, :, 1])
+                linePoints = self.hough_finder(data[cluster_ids == cluster_id, :]) 
+                all_linePoints=np.concatenate([all_linePoints, linePoints[:,:,:2]], axis=0) 
+                for i in range(linePoints.shape[0]):
+                    axs[ax_ids[0], ax_ids[1]].plot(linePoints[i, :, 0], linePoints[i, :, 1])
 
             line_index_name = "line_index_" + u_name + v_name
-            event.add_data(line_index_name, fixed_cluster_ids)
+            event.add_data(line_index_name, cluster_ids)
             event.add_data(in_and_f_name, all_linePoints) #Pascal
             #print("\n"+in_and_f_name+"=", event[in_and_f_name])
 
