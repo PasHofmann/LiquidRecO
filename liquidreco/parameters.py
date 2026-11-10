@@ -118,6 +118,7 @@ ModuleBase_SelectedEvents = []
 
 #Add_internal_nodes
 define_node_hit_regions_average_node_hit_number = 4.
+min_hits_per_node = 4
 
 
 

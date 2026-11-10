@@ -932,7 +932,7 @@ def preaverage_hits(hits, plane, direction, z_tol = .3): #parameters.z_range_fib
     groups = []
     current_group = [hits[0]]
     for hit in hits[1:]:
-        if abs(hit[idx]-current_group[-1][idx]<= z_tol):
+        if abs(hit[idx]-current_group[-1][idx])<= z_tol:
             current_group.append(hit)
         else:
             groups.append(current_group)
@@ -978,13 +978,22 @@ def create_track_nodes(data, track, line_index):
             hit_group_list.append(assign_hits_to_node_region(hits, t_hits, t, t_gap))
         hit_group_list[0].extend(additional_points_of_connection_point)
         additional_points_of_connection_point = hit_group_list[-1]
-        for hit_group in hit_group_list[:-1]:
+        for group_index, hit_group in enumerate(hit_group_list[:-1]):
             node = create_track_node(hit_group, track.plane)
             if node is not None:
+                if len(hit_group) <= parameters.min_hits_per_node and len(hits) > 30:
+                    continue
                 nodes.append(node)
+            else:
+                if group_index == 0:
+                    node = Node(p_in, 0, track.plane)
+                    nodes.append(node)
         if i == number_of_lines_in_track-1:
             node = create_track_node(hit_group_list[-1], track.plane)
             if node is not None:
+                nodes.append(node)
+            else:
+                node = Node(p_f, 0, track.plane)
                 nodes.append(node)
     return nodes
         
