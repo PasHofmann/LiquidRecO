@@ -95,7 +95,7 @@ make_list_of_vertex_candidates_threshold = 4. #distance at whihc track endpoints
 make_list_of_vertex_candidates_aligned_threshold = 15. #distance at which track endpoints are considered close enough for a vertex candidate if the lines are considered colinear
 make_list_of_vertex_candidates_angle_thresh_deg = 35. #allowed difference in angle for the lines to be considered colinear
 check_line_overlap_angle_threshold =15. #allowed difference in angle that allows the lines to be considered overlapped
-check_line_overlap_width_threshold = 1.
+check_line_overlap_width_threshold = 2.
 
 #   makePairs
 makePairs_threshold = .7
@@ -114,7 +114,7 @@ turning_point_matches_sigma_z = 5
 turning_point_matches_unmatched_penalty = .5
 
 #ModuleBase
-ModuleBase_SelectedEvents = []
+ModuleBase_SelectedEvents = [100064]
 
 #Add_internal_nodes
 define_node_hit_regions_average_node_hit_number = 4.

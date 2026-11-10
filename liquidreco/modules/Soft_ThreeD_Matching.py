@@ -79,15 +79,73 @@ def distance(data, in_x, in_y, f_x, f_y):
     closest_y= in_y + t*dy
     return np.hypot(x - closest_x, y - closest_y)
 
-def check_line_overlap(p1_in, p1_f, p2_in, p2_f, direction1, direction2, overlaped_angle_threshold = parameters.check_line_overlap_angle_threshold, overlaped_width_threshold = parameters.check_line_overlap_width_threshold):
-    cos_thresh = np.cos(np.radians(overlaped_angle_threshold))
-    distances_line1_endpoints2 = distance(np.array([p2_in, p2_f]), p1_in[0], p1_in[1], p1_f[0], p1_f[1])
-    distances_line2_endpoints1 = distance(np.array([p1_in, p1_f]), p2_in[0], p2_in[1], p2_f[0], p2_f[1])
-    cos_dir = abs(np.dot(direction1, direction2))
-    if cos_dir > cos_thresh and (min(distances_line1_endpoints2) <= overlaped_width_threshold and min(distances_line2_endpoints1) <= overlaped_width_threshold):
+def check_point_on_projection(point, p_in, p_f):
+    direction = p_f - p_in
+    direction_length = direction @ direction
+    if direction_length < 1e-6:
+        return False
+    t = (point - p_in) @ direction / direction_length
+    if 0-1e-9 < t < 1. + 1e-9:
         return True
     else:
         return False
+
+def perpendicular_distance(p, a, b):
+    d = b - a
+    length = np.linalg.norm(d)
+    if length < 1e-9:
+        return np.linalg.norm(p - a)
+    u = d / length
+    rel = p - a
+    return np.linalg.norm(rel - (rel @ u) * u)   # remove the parallel part
+
+def check_line_overlap(p1_in, p1_f, p2_in, p2_f, direction1, direction2, overlaped_angle_threshold = parameters.check_line_overlap_angle_threshold, overlaped_width_threshold = parameters.check_line_overlap_width_threshold):
+    cos_thresh = np.cos(np.radians(overlaped_angle_threshold))
+    cos_dir = abs(np.dot(direction1, direction2))
+    if cos_dir > cos_thresh:
+        p1_in_on_projection = check_point_on_projection(p1_in, p2_in, p2_f)
+        p1_f_on_projection = check_point_on_projection(p1_f, p2_in, p2_f)
+        p2_in_on_projection = check_point_on_projection(p2_in, p1_in, p1_f)
+        p2_f_on_projection = check_point_on_projection(p2_f, p1_in, p1_f)
+        if p1_in_on_projection and not p1_f_on_projection:
+            if p2_in_on_projection and not p2_f_on_projection:
+                p1_dist = perpendicular_distance(p1_in, p2_in, p2_f)
+                p2_dist = perpendicular_distance(p2_in, p1_in, p1_f)
+                if p1_dist <= overlaped_width_threshold and p2_dist <= overlaped_width_threshold:
+                    return True, "in", "in"
+                else:
+                    return False, None, None
+            elif p2_f_on_projection and not p2_in_on_projection:
+                p1_dist = perpendicular_distance(p1_in, p2_in, p2_f)
+                p2_dist = perpendicular_distance(p2_f, p1_in, p1_f)
+                if p1_dist <= overlaped_width_threshold and p2_dist <= overlaped_width_threshold:
+                    return True, "in", "f"
+                else:
+                    return False, None, None
+            else:
+                return False, None, None
+
+        elif p1_f_on_projection and not p1_in_on_projection:
+            if p2_in_on_projection and not p2_f_on_projection:
+                p1_dist = perpendicular_distance(p1_f, p2_in, p2_f)
+                p2_dist = perpendicular_distance(p2_in, p1_in, p1_f)
+                if p1_dist <= overlaped_width_threshold and p2_dist <= overlaped_width_threshold:
+                    return True, "f", "in"
+                else:
+                    return False, None, None
+            elif p2_f_on_projection and not p2_in_on_projection:
+                p1_dist = perpendicular_distance(p1_f, p2_in, p2_f)
+                p2_dist = perpendicular_distance(p2_f, p1_in, p1_f)
+                if p1_dist <= overlaped_width_threshold and p2_dist <= overlaped_width_threshold:
+                    return True, "f", "f"
+                else:
+                    return False, None, None
+            else:
+                return False, None, None
+        else:
+            return False, None, None
+    else:
+        return False, None, None
 
 
 
@@ -115,7 +173,7 @@ def make_list_of_vertex_candidates(lines, threshold = parameters.make_list_of_ve
             p2_in = line2.p_in
             p1_f = line1.p_f
             p2_f = line2.p_f
-            overlapping = check_line_overlap(p1_in, p1_f, p2_in, p2_f, directions[i], directions[j])
+            overlapping, ov1, ov2 = check_line_overlap(p1_in, p1_f, p2_in, p2_f, directions[i], directions[j])
 
             #We want to test each combination of end points of the lines to see which ones are to be considered possibly connected
             for p1, end1 in zip([p1_in, p1_f], ["in", "f"]):
@@ -126,19 +184,13 @@ def make_list_of_vertex_candidates(lines, threshold = parameters.make_list_of_ve
                         continue
 
                     if overlapping:
-                        point_index = np.argmin(np.array([np.linalg.norm(p1_in-p2_in), np.linalg.norm(p1_in-p2_f), np.linalg.norm(p1_f-p2_in), np.linalg.norm(p1_f-p2_f)]))
-                        points = np.array([[p1_in, p2_in], [p1_in, p2_f], [p1_f, p2_in], [p1_f, p2_f]])
-                        ends = np.array([["in", "in"], ["in", "f"], ["f", "in"], ["f", "f"]])
-                        if (end1, end2) != tuple(ends[point_index]):
+                        if (end1, end2) != (ov1, ov2):
                             continue
-                        p1 = points[point_index, 0]
-                        p2 = points[point_index, 1]
-                        end1 = ends[point_index, 0]
-                        end2 = ends[point_index, 1]
                         vertex_id = len(vertex_candidates)
                         vertex_candidates.append(SoftVertexCandidate(p1 + (p2 - p1) / 2, vertex_id))
                         vertex_candidates[vertex_id].add_neighbour_line(line1,end1, 0.)
                         vertex_candidates[vertex_id].add_neighbour_line(line2, end2, 0.)
+                        print("\n Added vertex due to overlapping")
                         continue
                             #We check whether the 2 lines have similar direction
                     cos_dir = abs(np.dot(directions[i], directions[j]))
@@ -165,6 +217,7 @@ def make_list_of_vertex_candidates(lines, threshold = parameters.make_list_of_ve
                         vertex_candidates.append(SoftVertexCandidate(p1 + (p2 - p1) / 2, vertex_id))
                         vertex_candidates[vertex_id].add_neighbour_line(line1,end1, dist/2)
                         vertex_candidates[vertex_id].add_neighbour_line(line2, end2, dist/2)
+                        print("\n Added vertex due to either aligned or just close")
 
     #The connection between the vertices is added to the vertices
     vertex_candidates = find_vertex_net(vertex_candidates)
