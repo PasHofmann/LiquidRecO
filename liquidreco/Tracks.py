@@ -124,16 +124,21 @@ class Line:
         raise ValueError(f"{end_point} is not a valid end_point")
 
     def get_other_end_point(self, end_point):
-        if np.array_equal(end_point, self.p_in):
-            return self.p_f
-        elif np.array_equal(end_point, self.p_f):
-            return self.p_in
-        elif isinstance(end_point, str):
+        if isinstance(end_point, str):
             if end_point == "in":
                 return self.p_f
             elif end_point == "f":
                 return self.p_in
+        elif np.linalg.norm(end_point - self.p_in)<1e-6:
+            return self.p_f
+        elif np.linalg.norm(end_point - self.p_f) <1e-6:
+            return self.p_in
+
         raise ValueError(f"{end_point} is not a valid end_point")
+
+    def get_point_on_line(self, t):
+        dir = self.p_f - self.p_in
+        return self.p_in + t * dir
 
 
 class VertexCandidate:
@@ -171,12 +176,13 @@ class VertexCandidate:
 
 
 class SoftVertexCandidate:
-    def __init__(self, position, vertex_id):
+    def __init__(self, position, vertex_id, charge = 0.):
         self.vertex_id = vertex_id
         self.position = position
         self.attachments = []
         self.neighbour_vertices = []
         self.mut_exc_vertices = []
+        self.charge = charge
 
     def connected_line_ids(self):
         return {a[0] for a in self.attachments}
@@ -225,6 +231,7 @@ class SoftTrack:
         self.attachment_point = (line.line_id, "both")
         self.total_charge = line.total_charge
         self.vertices = []
+        self.nodes = []
 
     def track_length(self):
         total_length = 0
@@ -261,6 +268,7 @@ class SoftTrack:
         new.attachment_point = self.attachment_point
         new.total_charge = self.total_charge
         new.vertices = list(self.vertices)
+        new.nodes = list(self.nodes)
         return new
 
     def __len__(self):
@@ -475,6 +483,7 @@ class SoftTrack:
 
     def reverse_track(self):
         reversed_track = self.copy()
+        reversed_track.nodes = self.nodes[::-1]
         if len(self.lines) == 1:
             line = self.lines[0]
             flipped = Line.from_points(line.p_f, line.p_in, line.line_id, line.total_charge)
@@ -613,3 +622,9 @@ class turning_point_matches:
                 else:
                     raise ValueError(f"{point_plane} is not a valid plane")
         return None
+
+class Node:
+    def __init__(self, position, charge, plane):
+        self.position = position
+        self.charge = charge
+        self.plane = plane

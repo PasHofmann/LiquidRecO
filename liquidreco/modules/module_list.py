@@ -14,7 +14,7 @@ from liquidreco.modules.Track_finding import CutLines, Refit_lines, Find_simple_
 from liquidreco.modules.tree_making import MakeTree
 from liquidreco.modules.plot_HoughSpace import HoughTransformPlot
 from liquidreco.modules.ThreeD_Matching import ThreeDMatching
-from liquidreco.modules.Soft_ThreeD_Matching import Find_candidate_tracks, SoftThreeDMatching, Muon_Main_track_statistics, Build_ThreeD_tracks
+from liquidreco.modules.Soft_ThreeD_Matching import Find_candidate_tracks, SoftThreeDMatching, Muon_Main_track_statistics, Build_ThreeD_tracks, Add_internal_nodes
 
     
 class ModuleList(metaclass=Singleton):
@@ -106,6 +106,7 @@ ModuleList().register(Unasigned_RANSAC_refit_lines)
 ModuleList().register(ThreeDMatching)
 ModuleList().register(Find_candidate_tracks)
 ModuleList().register(SoftThreeDMatching)
+ModuleList().register(Add_internal_nodes)
 ModuleList().register(Build_ThreeD_tracks)
 #ModuleList().register(LocalMeanDBSCAN) <- this thing is mad broken... maybe one day it will be fixed
 
