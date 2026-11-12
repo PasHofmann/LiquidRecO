@@ -520,6 +520,40 @@ class ThreeDTrack:
         self.lines.append(line)
         self.points.append(point)
 
+    def length(self):
+            return sum([line.length() for line in self.lines])
+
+    def get_TwoD_points(self, t_values):
+        track_length = self.length()
+        values_along_track = track_length * np.array(t_values)
+        previous_length = 0
+        next_length = 0
+        zy_points = []
+        xz_points = []
+        i=0
+        for line in self.lines:
+            line_length = line.length()
+            if line_length <= 1e-6:
+                continue
+            next_length += line_length
+            for j in range(i, len(values_along_track)):
+                value = values_along_track[j]
+                if value <= next_length + 1e-6:
+                    local_t = (value - previous_length) / line_length
+                    ThreeD_point = line.get_point_on_line(local_t)
+                    zy_points.append(ThreeD_point[[2, 1]])
+                    xz_points.append(ThreeD_point[[0, 2]])
+                    i=j+1
+                else:
+                    break
+            previous_length += line_length
+
+        return zy_points, xz_points
+                
+
+            
+
+
 class turning_point_class(SoftVertexCandidate):
     def __init__(self, vertex, extrema_type, plane, id):
         super().__init__(vertex.position, vertex.vertex_id)
@@ -537,6 +571,8 @@ class turning_point_class(SoftVertexCandidate):
             return self.position[1]
         else:
             raise ValueError(f"{self.plane} is not an recognized plane")
+
+
         
 class turning_point_matches:
     def __init__(self, matched_list):
