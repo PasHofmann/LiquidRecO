@@ -999,7 +999,7 @@ def create_track_node(hit_group, plane):
         return None
     return Node(np.average(hit_group[:, :2], axis = 0, weights = hit_group[:, 2]), np.sum(hit_group[:, 2]), plane)
 
-def preaverage_hits(hits, plane, direction, main_tol = parameters.preaverage_hits_main_tol, secondary_tol = preaverage_hits_secondary_tol): #parameters.z_range_fiber_dist
+def preaverage_hits(hits, plane, direction): #parameters.z_range_fiber_dist
     hits = np.asarray(hits, dtype = float)
     if hits.size == 0:
         return hits
@@ -1064,8 +1064,8 @@ def create_track_nodes(data, track, line_index):
     for i in range(number_of_lines_in_track):
         line = track.lines[i]
         hits = data[line_index == line.line_id]
-        hits = preaverage_hits(hits, track.plane, "z")
-        hits = preaverage_hits(hits, track.plane, "other_coordinate")
+        #hits = preaverage_hits(hits, track.plane, "z")
+        #hits = preaverage_hits(hits, track.plane, "other_coordinate")
         p_in = track_point_sequence[i]
         p_f = track_point_sequence[i+1]
         direction = p_f - p_in
@@ -1088,33 +1088,15 @@ def create_track_nodes(data, track, line_index):
                 nodes.append(node)
             else:
                 if group_index == 0:
-                    number_of_t_values = len(t_values)
-                    cushin_of_empty_groups = math.ceil(number_of_t_values * parameters.create_track_nodes_cushin_perc)
-                    all_empty = True
-                    min_hit_per_node = 0 if len(hits)<parameters.create_track_nodes_min_hits_for_large_track else parameters.min_hits_per_node
-                    for j in range(cushin_of_empty_groups):
-                        if len(hit_group_list[j+1]) > min_hit_per_node:
-                            all_empty = False
-                            break
-                    if all_empty:
-                        node = Node(p_in, 0, track.plane)
-                        nodes.append(node)
+                    node = Node(p_in, 0, track.plane)
+                    nodes.append(node)
         if i == number_of_lines_in_track-1:
             node = create_track_node(hit_group_list[-1], track.plane)
             if node is not None:
                 nodes.append(node)
             else:
-                number_of_t_values = len(t_values)
-                cushin_of_empty_groups = math.ceil(number_of_t_values * parameters.create_track_nodes_cushin_perc)
-                all_empty = True
-                min_hit_per_node = 0 if len(hits)<parameters.create_track_nodes_min_hits_for_large_track else parameters.min_hits_per_node
-                for j in range(cushin_of_empty_groups):
-                    if len(hit_group_list[-(j+2)]) > min_hit_per_node:
-                        all_empty = False
-                        break
-                if all_empty:
-                    node = Node(p_f, 0, track.plane)
-                    nodes.append(node)
+                node = Node(p_f, 0, track.plane)
+                nodes.append(node)
     return nodes
         
 def make_track_from_nodes(Nodes, Old_track, line_id, vertex_id):
