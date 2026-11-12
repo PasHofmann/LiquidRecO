@@ -190,7 +190,6 @@ def make_list_of_vertex_candidates(lines, threshold = parameters.make_list_of_ve
                         vertex_candidates.append(SoftVertexCandidate(p1 + (p2 - p1) / 2, vertex_id))
                         vertex_candidates[vertex_id].add_neighbour_line(line1,end1, 0.)
                         vertex_candidates[vertex_id].add_neighbour_line(line2, end2, 0.)
-                        print("\n Added vertex due to overlapping")
                         continue
                             #We check whether the 2 lines have similar direction
                     cos_dir = abs(np.dot(directions[i], directions[j]))
@@ -217,7 +216,6 @@ def make_list_of_vertex_candidates(lines, threshold = parameters.make_list_of_ve
                         vertex_candidates.append(SoftVertexCandidate(p1 + (p2 - p1) / 2, vertex_id))
                         vertex_candidates[vertex_id].add_neighbour_line(line1,end1, dist/2)
                         vertex_candidates[vertex_id].add_neighbour_line(line2, end2, dist/2)
-                        print("\n Added vertex due to either aligned or just close")
 
     #The connection between the vertices is added to the vertices
     vertex_candidates = find_vertex_net(vertex_candidates)
@@ -459,6 +457,7 @@ class SoftThreeDMatching(ModuleBase):
             track_pair[1].connect_lines_in_track()
   
         event.add_data("track_pairs", track_pairs)
+        print("\n SoftThreeDMatching: len(track_pairs) = ", len(track_pairs))
 
         tracks = [track_pair[0] for track_pair in track_pairs] 
         tracks_name = "tracks_z_y"
@@ -649,48 +648,59 @@ def change_sign(current_sign):
     else:
         return 1.
 
-"""
+
 def path_length(seq):
-    return sum(np.linalg.norm(seq[i+1] - seq[i]) for i in range(len(seq) - 1))
+    return sum(np.linalg.norm(seq[i+1].position - seq[i].position) for i in range(len(seq) - 1))
 
+def pick_run_ends(run, prev, nxt):
+    pos = np.array([n.position for n in run])
+    if prev is not None and nxt is not None:
+        a = int(np.argmin(np.linalg.norm(pos - prev.position, axis=1)))
+        d = np.linalg.norm(pos - nxt.position, axis=1)
+        d[a] = np.inf
+        b = int(np.argmin(d))
+    elif prev is not None:
+        a = int(np.argmin(np.linalg.norm(pos - prev.position, axis=1)))
+        b = int(np.argmax(np.linalg.norm(pos - pos[a], axis=1)))
+    elif nxt is not None:
+        b = int(np.argmin(np.linalg.norm(pos - nxt.position, axis=1)))
+        a = int(np.argmax(np.linalg.norm(pos - pos[b], axis=1)))
+    else:
+        dist = np.linalg.norm(pos[:, None] - pos[None, :], axis=2)
+        a, b = np.unravel_index(np.argmax(dist), dist.shape)
+    a, b = int(a), int(b)
+    if a == b:
+        return list(run)
+    # move the charge of dropped nodes to the nearer kept node
+    for k, node in enumerate(run):
+        if k in (a, b):
+            continue
+        target = run[a] if np.linalg.norm(pos[k] - pos[a]) <= np.linalg.norm(pos[k] - pos[b]) else run[b]
+        target.charge += node.charge
+    return [run[a], run[b]]
 
-def order_horizontal_runs(points, z_tol=parameters.z_range_fiber_dist, max_brute=8):
-    pts = [np.asarray(p, dtype=float) for p in points]
-    n = len(pts)
+def horizontal_node_ordering(nodes, z_tol=parameters.z_range_fiber_dist, max_brute=5):
+    
+    n = len(nodes)
     result = []
     i = 0
     while i < n:
         # find the run of consecutive points sharing (almost) the same z
         j = i
-        while j + 1 < n and abs(pts[j+1][2] - pts[i][2]) <= z_tol:
+        while j + 1 < n and abs(nodes[j+1].position[2] - nodes[i].position[2]) <= z_tol:
             j += 1
-        run = pts[i:j+1]
+        run = nodes[i:j+1]
 
-        if len(run) > 1:
-            prev = [result[-1]] if result else []   # already placed point before the run
-            nxt  = [pts[j+1]] if j + 1 < n else []  # point after the run (different z, untouched)
+        if len(run) > 2:
+            prev = result[-1] if result else None
+            nxt  = nodes[j+1] if j + 1 < n else None
 
-            if len(run) <= max_brute:
-                best = min(
-                    permutations(run),
-                    key=lambda perm: path_length(prev + list(perm) + nxt)
-                )
-                run = list(best)
-            else:
-                # fallback: greedy nearest neighbour starting from prev (or run[0])
-                ref = prev[0] if prev else run[0]
-                remaining = list(run)
-                chain = []
-                while remaining:
-                    k = int(np.argmin([np.linalg.norm(p - ref) for p in remaining]))
-                    ref = remaining.pop(k)
-                    chain.append(ref)
-                run = chain
+            run = pick_run_ends(run, prev, nxt)
 
         result.extend(run)
         i = j + 1
-    return np.array(result)
-"""
+    return result
+
     
 
 class Build_ThreeD_tracks(ModuleBase):
@@ -713,11 +723,17 @@ class Build_ThreeD_tracks(ModuleBase):
             if track_z_y.monotonous()[0] and track_x_z.monotonous()[0]:
                 points_z_y = track_z_y.nodes
                 points_x_z = track_x_z.nodes
+                #print("\n Build_ThreeD_tracks: \n track_z_y ",track_z_y.track_id, "\n track_x_z ", track_x_z.track_id,"\n len(points_z_y) = ", len(points_z_y), "\n len(points_x_z) = ", len(points_x_z))
                 ThreeD_nodes = create_threeD_points("zy", points_z_y, track_x_z) + create_threeD_points("xz", points_x_z, track_z_y)
+                #print("\n len(ThreeD_nodes) = ", len(ThreeD_nodes))
                 if len(ThreeD_nodes) < 2:
-                    raise ValueError(f"ThreeD_points is too short: len(ThreeD_points) = {len(ThreeD_nodes)}")
+                    #print("\n points_z_y = ", [point.position for point in points_z_y])
+                    #print("\n points_x_z = ", [point.position for point in points_x_z])
+                    print(f"\n ThreeD_points is too short: len(ThreeD_points) = {len(ThreeD_nodes)}")
+                    #raise ValueError(f"ThreeD_points is too short: len(ThreeD_points) = {len(ThreeD_nodes)}")
                     continue
                 ThreeD_nodes.sort(key=lambda n: n.position[2])
+                ThreeD_nodes = horizontal_node_ordering(ThreeD_nodes)
                 ThreeD_points = [n.position for n in ThreeD_nodes]
                 free_line_id = len(ThreeD_lines)
                 free_track_id = len(ThreeD_tracks)
@@ -742,17 +758,28 @@ class Build_ThreeD_tracks(ModuleBase):
                 if a == 3:
                     track_z_y = track_z_y.reverse_track()
                     track_x_z = track_x_z.reverse_track()
-
+                """
+                track_x_z.show()
+                for line in track_x_z.lines:
+                    line.show()
+                """
                 signs_zy, turning_points_zy, subtracks_zy = track_z_y.split_into_monotonous_subtracks()
                 signs_xz, turning_points_xz, subtracks_xz = track_x_z.split_into_monotonous_subtracks()
+                if len(signs_zy) == 0 and len(signs_xz) == 0:
+                    print(f"Both tracks are flat, why are they non-monotonous?")
+                    continue
+                elif len(signs_zy) == 0:
+                    signs_zy.append(signs_xz[0])
+                elif len(signs_xz) == 0:
+                    signs_xz.append(signs_zy[0])
+                if signs_zy[0] != signs_xz[0]:                     
+                    print(f"\n weird edge case: signs_zy[0] = {signs_zy[0]} while signs_xz[0] = {signs_xz[0]}")
+                    continue                
                 if signs_zy[0] != signs_xz[0]:
                     track_z_y = track_z_y.reverse_track()
                     track_x_z = track_x_z.reverse_track()
                     signs_zy, turning_points_zy, subtracks_zy = track_z_y.split_into_monotonous_subtracks()
                     signs_xz, turning_points_xz, subtracks_xz = track_x_z.split_into_monotonous_subtracks()
-                    if signs_zy[0] != signs_xz[0]:                     
-                        print(f"\n weird edge case: signs_zy[0] = {signs_zy[0]} while signs_xz[0] = {signs_xz[0]}")
-                        continue
                 matched_turning_points = match_turning_points(turning_points_zy, turning_points_xz)
                 nodes_z_y = track_z_y.nodes
                 nodes_x_z = track_x_z.nodes
@@ -894,8 +921,8 @@ class Build_ThreeD_tracks(ModuleBase):
                 free_track_id = len(ThreeD_tracks)
                 if len(ThreeD_nodes)<2:
                     continue
+                ThreeD_nodes = horizontal_node_ordering(ThreeD_nodes)
                 ThreeD_points = [n.position for n in ThreeD_nodes]
-                #ThreeD_points = order_horizontal_runs(ThreeD_points) Needs to be fixed
                 ThreeD_line = Line.from_points(ThreeD_points[0], ThreeD_points[1], free_line_id)
                 ThreeD_lines.append(ThreeD_line)
                 ThreeD_track = ThreeDTrack(free_track_id, ThreeD_line)
@@ -972,25 +999,48 @@ def create_track_node(hit_group, plane):
         return None
     return Node(np.average(hit_group[:, :2], axis = 0, weights = hit_group[:, 2]), np.sum(hit_group[:, 2]), plane)
 
-def preaverage_hits(hits, plane, direction, z_tol = .3): #parameters.z_range_fiber_dist
+def preaverage_hits(hits, plane, direction, main_tol = parameters.preaverage_hits_main_tol, secondary_tol = preaverage_hits_secondary_tol): #parameters.z_range_fiber_dist
     hits = np.asarray(hits, dtype = float)
     if hits.size == 0:
         return hits
     not_z_idx = 1 if plane == "zy" else 0
     z_idx = 0 if plane == "zy" else 1
     idx = z_idx if direction=="z" else not_z_idx
+    other_idx = not_z_idx if direction=="z" else z_idx
     order = np.argsort(hits[:, idx])
     hits = hits[order]
 
     groups = []
     current_group = [hits[0]]
+    current_subgroup = []
     for hit in hits[1:]:
-        if abs(hit[idx]-current_group[-1][idx])<= z_tol:
+        if abs(hit[idx]-current_group[-1][idx])<= main_tol:
             current_group.append(hit)
         else:
-            groups.append(current_group)
+            current_group = np.array(current_group)
+            sub_order = np.argsort(current_group[:, other_idx])
+            current_group = current_group[sub_order]
+            current_subgroup = [current_group[0]]
+            for hit_in_current_group in current_group[1:]:
+                if abs(hit_in_current_group[other_idx]- current_subgroup[-1][other_idx])<= secondary_tol:
+                    current_subgroup.append(hit_in_current_group)
+                else:
+                    groups.append(current_subgroup)
+                    current_subgroup = [hit_in_current_group]
+            groups.append(current_subgroup)
             current_group = [hit]
-    groups.append(current_group)
+
+    current_group = np.array(current_group)
+    sub_order = np.argsort(current_group[:, other_idx])
+    current_group = current_group[sub_order]
+    current_subgroup = [current_group[0]]
+    for hit_in_current_group in current_group[1:]:
+        if abs(hit_in_current_group[other_idx]- current_subgroup[-1][other_idx])<= secondary_tol:
+            current_subgroup.append(hit_in_current_group)
+        else:
+            groups.append(current_subgroup)
+            current_subgroup = [hit_in_current_group]
+    groups.append(current_subgroup)
     averaged_hits = []
     #if len(groups) == 1:
     #    return hits[:, :3]
@@ -1005,7 +1055,6 @@ def preaverage_hits(hits, plane, direction, z_tol = .3): #parameters.z_range_fib
     return np.array(averaged_hits)
 
 
-    
 
 def create_track_nodes(data, track, line_index):
     nodes = []
@@ -1034,20 +1083,38 @@ def create_track_nodes(data, track, line_index):
         for group_index, hit_group in enumerate(hit_group_list[:-1]):
             node = create_track_node(hit_group, track.plane)
             if node is not None:
-                if len(hit_group) <= parameters.min_hits_per_node and len(hits) > 30:
+                if len(hit_group) <= parameters.min_hits_per_node and len(hits) > parameters.create_track_nodes_min_hits_for_large_track:
                     continue
                 nodes.append(node)
             else:
                 if group_index == 0:
-                    node = Node(p_in, 0, track.plane)
-                    nodes.append(node)
+                    number_of_t_values = len(t_values)
+                    cushin_of_empty_groups = math.ceil(number_of_t_values * parameters.create_track_nodes_cushin_perc)
+                    all_empty = True
+                    min_hit_per_node = 0 if len(hits)<parameters.create_track_nodes_min_hits_for_large_track else parameters.min_hits_per_node
+                    for j in range(cushin_of_empty_groups):
+                        if len(hit_group_list[j+1]) > min_hit_per_node:
+                            all_empty = False
+                            break
+                    if all_empty:
+                        node = Node(p_in, 0, track.plane)
+                        nodes.append(node)
         if i == number_of_lines_in_track-1:
             node = create_track_node(hit_group_list[-1], track.plane)
             if node is not None:
                 nodes.append(node)
             else:
-                node = Node(p_f, 0, track.plane)
-                nodes.append(node)
+                number_of_t_values = len(t_values)
+                cushin_of_empty_groups = math.ceil(number_of_t_values * parameters.create_track_nodes_cushin_perc)
+                all_empty = True
+                min_hit_per_node = 0 if len(hits)<parameters.create_track_nodes_min_hits_for_large_track else parameters.min_hits_per_node
+                for j in range(cushin_of_empty_groups):
+                    if len(hit_group_list[-(j+2)]) > min_hit_per_node:
+                        all_empty = False
+                        break
+                if all_empty:
+                    node = Node(p_f, 0, track.plane)
+                    nodes.append(node)
     return nodes
         
 def make_track_from_nodes(Nodes, Old_track, line_id, vertex_id):
@@ -1120,6 +1187,7 @@ class Add_internal_nodes(ModuleBase):
                 if len(data) == 0:
                     return
                 Nodes = create_track_nodes(data, track, line_index)
+
                 New_track_pair[pair_index], line_id, vertex_id = make_track_from_nodes(Nodes, track, line_id, vertex_id)
                 line_id_temp[pair_index] = line_id
                 vertex_id_temp[pair_index] = vertex_id
@@ -1130,6 +1198,10 @@ class Add_internal_nodes(ModuleBase):
         #event.add_data("track_pairs", New_track_pairs)
 
         store_pairs_in_event(event, New_track_pairs)
+        #print("\n Add_internal_nodes:\n len(New_track_pairs) = ", len(New_track_pairs))
+        #for track_pair in New_track_pairs:
+        #    print("\n plane ", track_pair[0].plane, " track ", track_pair[0].track_id, ": len(track_pair[0].nodes) = ", len(track_pair[0].nodes))
+        #    print("\n plane ", track_pair[1].plane, " track ", track_pair[1].track_id, ": len(track_pair[1].nodes) = ", len(track_pair[1].nodes))
 
                 
 

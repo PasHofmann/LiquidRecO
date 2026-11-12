@@ -105,7 +105,7 @@ makePairs_gap_coefficient = 0.
 makePairs_pair_penalty = 1.
 
 #module_base
-number_of_events = 200
+number_of_events = 20
 
 #tracks
 z_range_fiber_dist = .55
@@ -114,11 +114,15 @@ turning_point_matches_sigma_z = 5
 turning_point_matches_unmatched_penalty = .5
 
 #ModuleBase
-ModuleBase_SelectedEvents = [100064]
+ModuleBase_SelectedEvents = []
 
 #Add_internal_nodes
-define_node_hit_regions_average_node_hit_number = 4.
-min_hits_per_node = 4
+define_node_hit_regions_average_node_hit_number = 6.
+min_hits_per_node = 3
+create_track_nodes_cushin_perc = 0.1
+create_track_nodes_min_hits_for_large_track = 30
+preaverage_hits_main_tol = .3
+preaverage_hits_secondary_tol = 1.6
 
 
 
