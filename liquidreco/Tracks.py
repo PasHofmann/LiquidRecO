@@ -1,4 +1,5 @@
 import numpy as np
+import math
 from liquidreco import parameters
 
 class SimpleTrack:
@@ -512,6 +513,7 @@ class ThreeDTrack:
         self.line_ids = np.array([line.line_id], dtype = np.int64)
         self.lines = [line]
         self.points = [line.p_in, line.p_f]
+        self.nodes = []
 
     def add_point_to_track(self, point, free_line_id):
         self.line_ids = np.append(self.line_ids, free_line_id)
@@ -523,13 +525,12 @@ class ThreeDTrack:
     def length(self):
             return sum([line.length() for line in self.lines])
 
-    def get_TwoD_points(self, t_values):
+    def create_nodes(self, t_values, actual_spacing):
         track_length = self.length()
         values_along_track = track_length * np.array(t_values)
         previous_length = 0
         next_length = 0
-        zy_points = []
-        xz_points = []
+        nodes = []
         i=0
         for line in self.lines:
             line_length = line.length()
@@ -541,15 +542,20 @@ class ThreeDTrack:
                 if value <= next_length + 1e-6:
                     local_t = (value - previous_length) / line_length
                     ThreeD_point = line.get_point_on_line(local_t)
-                    zy_points.append(ThreeD_point[[2, 1]])
-                    xz_points.append(ThreeD_point[[0, 2]])
+                    nodes.append(Node(ThreeD_point, 0, "ThreeD", spacing = actual_spacing))
                     i=j+1
                 else:
                     break
             previous_length += line_length
 
-        return zy_points, xz_points
-                
+        return nodes
+
+    def get_equally_spaced_t_values(self, spacing):
+        track_length = self.length()
+        number_of_intervals = max(1, math.ceil(track_length / spacing))
+        t_values = np.linspace(0, 1, number_of_intervals + 1)
+        actual_spacing = track_length / number_of_intervals
+        return t_values, actual_spacing
 
             
 
@@ -660,7 +666,32 @@ class turning_point_matches:
         return None
 
 class Node:
-    def __init__(self, position, charge, plane):
+    def __init__(self, position, charge, plane, spacing = None, number_of_zy_hits = 0, number_of_xz_hits = 0):
         self.position = position
         self.charge = charge
         self.plane = plane
+        self.spacing = spacing
+        self.number_of_zy_hits = number_of_zy_hits
+        self.number_of_xz_hits = number_of_xz_hits
+
+        self.number_of_hits = number_of_zy_hits + number_of_xz_hits
+
+    def get_TwoD_position(self, plane):
+        if self.plane == plane:
+            return self.position
+        elif self.plane == "ThreeD":
+            if plane != "zy" and plane != "xz":
+                raise ValueError(f"{plane} is not a valid plane")
+            coordinates = [2, 1] if plane == "zy" else [0, 2]
+            return self.position[coordinates]
+        else:
+            raise ValueError(f"Node in plane {self.plane} does not know plane {plane}")
+    def add_hit(self, plane, hit):
+        if plane == "zy":
+            self.number_of_zy_hits += 1
+        elif plane == "xz":
+            self.number_of_xz_hits += 1
+        else:
+            raise ValueError(f"{plane} is not a valid plane")
+        self.charge += hit[2]
+        self.number_of_hits += 1

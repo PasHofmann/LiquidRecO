@@ -701,7 +701,35 @@ def horizontal_node_ordering(nodes, z_tol=parameters.z_range_fiber_dist, max_bru
         i = j + 1
     return result
 
-    
+def make_list_of_hits_per_track(data, line_index, track):
+    track_hits = []
+    for line in track.lines:
+        mask = line_index == line.line_id
+        track_hits.extend(data[mask])
+    return track_hits
+
+def assign_hits_to_closest_node(track_hits, nodes, plane):
+    if len(track_hits) == 0 or len(nodes) == 0:
+        return nodes
+    points = [node.get_TwoD_position(plane) for node in nodes]
+    for hit in track_hits:
+        min_hit_dist = np.inf
+        best_point_idx = None
+        for point_index, point in enumerate(points):
+            dist = np.linalg.norm(hit[:2]-point)
+            if dist < min_hit_dist:
+                min_hit_dist = dist
+                best_point_idx = point_index
+        nodes[best_point_idx].add_hit(plane, hit)
+    return nodes
+
+def make_equally_spaced_nodes(ThreeD_track, track_pair, line_index_zy, line_index_xz, data_zy, data_xz, spacing = parameters.make_equally_spaced_nodes_spacing):
+    t_values, actual_spacing = ThreeD_track.get_equally_spaced_t_values(spacing)
+    nodes = ThreeD_track.create_nodes(t_values, actual_spacing)
+    for track, line_index, data in zip(track_pair[:2], [line_index_zy, line_index_xz], [data_zy, data_xz]):
+        track_hits = make_list_of_hits_per_track(data, line_index, track)
+        nodes = assign_hits_to_closest_node(track_hits, nodes, track.plane)
+    return nodes
 
 class Build_ThreeD_tracks(ModuleBase):
     def __init__(self):
@@ -716,9 +744,17 @@ class Build_ThreeD_tracks(ModuleBase):
 
     def _process(self, event:Event):
         track_pairs = event["track_pairs"]
+        x_fiber_hits = event["x_fiber_hits"]
+        y_fiber_hits = event["y_fiber_hits"]
+        min_charge_thresh = event["min_charge_thresh"]
+        line_index_zy = np.asarray(event["line_index_zy"])
+        line_index_xz = np.asarray(event["line_index_xz"])
+        data_zy = data_2D(x_fiber_hits, "z", "y", min_charge_thresh)
+        data_xz = data_2D(y_fiber_hits, "x", "z", min_charge_thresh)
+
         ThreeD_lines = []
         ThreeD_tracks = []
-        for track_pair in track_pairs:
+        for pair_index, track_pair in enumerate(track_pairs):
             track_z_y, track_x_z, _ = track_pair
             if track_z_y.monotonous()[0] and track_x_z.monotonous()[0]:
                 points_z_y = track_z_y.nodes
@@ -740,11 +776,13 @@ class Build_ThreeD_tracks(ModuleBase):
                 ThreeD_line = Line.from_points(ThreeD_points[0], ThreeD_points[1], free_line_id)
                 ThreeD_lines.append(ThreeD_line)
                 ThreeD_track = ThreeDTrack(free_track_id, ThreeD_line)
+                ThreeD_track.track_id = pair_index
                 for i in range(2, len(ThreeD_points)):
                     free_line_id = len(ThreeD_lines)
                     ThreeD_track.add_point_to_track(ThreeD_points[i], free_line_id)
                     ThreeD_lines.append(ThreeD_track.lines[-1])
-                ThreeD_track.nodes = ThreeD_nodes
+                New_ThreeD_nodes = make_equally_spaced_nodes(ThreeD_track, track_pair, line_index_zy, line_index_xz, data_zy, data_xz)
+                ThreeD_track.nodes = New_ThreeD_nodes
                 ThreeD_tracks.append(ThreeD_track)
             else:
                 p_in_zy, p_f_zy = track_z_y.get_endpoints_of_track()
@@ -926,11 +964,13 @@ class Build_ThreeD_tracks(ModuleBase):
                 ThreeD_line = Line.from_points(ThreeD_points[0], ThreeD_points[1], free_line_id)
                 ThreeD_lines.append(ThreeD_line)
                 ThreeD_track = ThreeDTrack(free_track_id, ThreeD_line)
+                ThreeD_track.track_id = pair_index
                 for i in range(2, len(ThreeD_points)):
                     free_line_id = len(ThreeD_lines)
                     ThreeD_track.add_point_to_track(ThreeD_points[i], free_line_id)
                     ThreeD_lines.append(ThreeD_track.lines[-1])
-                ThreeD_track.nodes = ThreeD_nodes
+                New_ThreeD_nodes = make_equally_spaced_nodes(ThreeD_track, track_pair, line_index_zy, line_index_xz, data_zy, data_xz)
+                ThreeD_track.nodes = New_ThreeD_nodes
                 ThreeD_tracks.append(ThreeD_track)                        
         event.add_data("ThreeD_lines", ThreeD_lines)
         event.add_data("ThreeD_tracks", ThreeD_tracks)
@@ -999,61 +1039,6 @@ def create_track_node(hit_group, plane):
         return None
     return Node(np.average(hit_group[:, :2], axis = 0, weights = hit_group[:, 2]), np.sum(hit_group[:, 2]), plane)
 
-def preaverage_hits(hits, plane, direction): #parameters.z_range_fiber_dist
-    hits = np.asarray(hits, dtype = float)
-    if hits.size == 0:
-        return hits
-    not_z_idx = 1 if plane == "zy" else 0
-    z_idx = 0 if plane == "zy" else 1
-    idx = z_idx if direction=="z" else not_z_idx
-    other_idx = not_z_idx if direction=="z" else z_idx
-    order = np.argsort(hits[:, idx])
-    hits = hits[order]
-
-    groups = []
-    current_group = [hits[0]]
-    current_subgroup = []
-    for hit in hits[1:]:
-        if abs(hit[idx]-current_group[-1][idx])<= main_tol:
-            current_group.append(hit)
-        else:
-            current_group = np.array(current_group)
-            sub_order = np.argsort(current_group[:, other_idx])
-            current_group = current_group[sub_order]
-            current_subgroup = [current_group[0]]
-            for hit_in_current_group in current_group[1:]:
-                if abs(hit_in_current_group[other_idx]- current_subgroup[-1][other_idx])<= secondary_tol:
-                    current_subgroup.append(hit_in_current_group)
-                else:
-                    groups.append(current_subgroup)
-                    current_subgroup = [hit_in_current_group]
-            groups.append(current_subgroup)
-            current_group = [hit]
-
-    current_group = np.array(current_group)
-    sub_order = np.argsort(current_group[:, other_idx])
-    current_group = current_group[sub_order]
-    current_subgroup = [current_group[0]]
-    for hit_in_current_group in current_group[1:]:
-        if abs(hit_in_current_group[other_idx]- current_subgroup[-1][other_idx])<= secondary_tol:
-            current_subgroup.append(hit_in_current_group)
-        else:
-            groups.append(current_subgroup)
-            current_subgroup = [hit_in_current_group]
-    groups.append(current_subgroup)
-    averaged_hits = []
-    #if len(groups) == 1:
-    #    return hits[:, :3]
-    for group in groups:
-        group = np.array(group)
-        number_of_hits_in_group = len(group)
-        total_charge = np.sum(group[:, 2])
-        position = np.average(group[:, :2], axis = 0, weights=group[:, 2])
-        for k in range(number_of_hits_in_group):
-            averaged_hits.append([position[0], position[1], total_charge/number_of_hits_in_group])
-
-    return np.array(averaged_hits)
-
 
 
 def create_track_nodes(data, track, line_index):
@@ -1064,8 +1049,6 @@ def create_track_nodes(data, track, line_index):
     for i in range(number_of_lines_in_track):
         line = track.lines[i]
         hits = data[line_index == line.line_id]
-        #hits = preaverage_hits(hits, track.plane, "z")
-        #hits = preaverage_hits(hits, track.plane, "other_coordinate")
         p_in = track_point_sequence[i]
         p_f = track_point_sequence[i+1]
         direction = p_f - p_in
@@ -1086,16 +1069,9 @@ def create_track_nodes(data, track, line_index):
                 if len(hit_group) <= parameters.min_hits_per_node and len(hits) > parameters.create_track_nodes_min_hits_for_large_track:
                     continue
                 nodes.append(node)
-            else:
-                if group_index == 0:
-                    node = Node(p_in, 0, track.plane)
-                    nodes.append(node)
         if i == number_of_lines_in_track-1:
             node = create_track_node(hit_group_list[-1], track.plane)
             if node is not None:
-                nodes.append(node)
-            else:
-                node = Node(p_f, 0, track.plane)
                 nodes.append(node)
     return nodes
         

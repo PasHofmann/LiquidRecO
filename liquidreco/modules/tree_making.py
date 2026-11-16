@@ -171,6 +171,16 @@ class MakeTree(ModuleBase):
         self.tree.Branch("track_points_z", self.track_points_z)
         self.tree.Branch("track_ids", self.track_ids)
 
+        self.track_nodes_x = std.vector('vector<float>')() #first index track_id, second index point in the track
+        self.track_nodes_y = std.vector('vector<float>')()
+        self.track_nodes_z = std.vector('vector<float>')()
+        self.track_node_charges = std.vector('vector<float>')()
+        self.tree.Branch("track_nodes_x", self.track_nodes_x)
+        self.tree.Branch("track_nodes_y", self.track_nodes_y)
+        self.tree.Branch("track_nodes_z", self.track_nodes_z)
+        self.tree.Branch("track_node_charges", self.track_node_charges)
+
+
 
 
     def _process(self, event:Event):
@@ -228,6 +238,11 @@ class MakeTree(ModuleBase):
         self.track_points_y.clear()
         self.track_points_z.clear()
         self.track_ids.clear()
+
+        self.track_nodes_x.clear()
+        self.track_nodes_y.clear()
+        self.track_nodes_z.clear()
+        self.track_node_charges.clear()
 
 
         #zy plot
@@ -359,6 +374,25 @@ class MakeTree(ModuleBase):
                 inner = std.vector('float')()
                 self.track_points_z.push_back(fill_vector_from_array(inner, ThreeD_track_points_z, cast=float))
 
+            ThreeD_tracks_nodes = [ThreeD_track.nodes for ThreeD_track in ThreeD_tracks]
+            for ThreeD_track_nodes in ThreeD_tracks_nodes:
+                if len(ThreeD_track_nodes) == 0:
+                    for vec in (self.track_nodes_x, self.track_nodes_y, self.track_nodes_z, self.track_node_charges):
+                        vec.push_back(std.vector('float')())
+                    continue
+                ThreeD_track_nodes_positions = np.array([node.position for node in ThreeD_track_nodes])
+                ThreeD_track_nodes_charges = np.array([node.charge for node in ThreeD_track_nodes])
+                ThreeD_track_nodes_x = ThreeD_track_nodes_positions[:, 0]
+                ThreeD_track_nodes_y = ThreeD_track_nodes_positions[:, 1]
+                ThreeD_track_nodes_z = ThreeD_track_nodes_positions[:, 2]
+                inner = std.vector('float')()
+                self.track_nodes_x.push_back(fill_vector_from_array(inner, ThreeD_track_nodes_x, cast=float))
+                inner = std.vector('float')()
+                self.track_nodes_y.push_back(fill_vector_from_array(inner, ThreeD_track_nodes_y, cast=float))
+                inner = std.vector('float')()
+                self.track_nodes_z.push_back(fill_vector_from_array(inner, ThreeD_track_nodes_z, cast=float))
+                inner = std.vector('float')()
+                self.track_node_charges.push_back(fill_vector_from_array(inner, ThreeD_track_nodes_charges, cast=float))
 
 
         self.tree.Fill()
