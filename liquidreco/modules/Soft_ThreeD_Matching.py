@@ -10,7 +10,8 @@ from scipy.optimize import linear_sum_assignment, milp, LinearConstraint, Bounds
 from scipy.sparse import coo_matrix
 from itertools import zip_longest, chain
 
-from  liquidreco.Tracks import Line, SoftVertexCandidate, SoftTrack, ThreeDTrack, turning_point_class, turning_point_matches, Node
+from liquidreco.Tracks import Line, SoftVertexCandidate, SoftTrack, ThreeDTrack, turning_point_class, turning_point_matches, Node
+from liquidreco.Truth import HitTruth, ContingencyMatrix
 
 from liquidreco import parameters
 from liquidreco.save_used_modules import log_module_name
@@ -441,7 +442,7 @@ class SoftThreeDMatching(ModuleBase):
         pass
 
     def _process(self, event:Event):
-        print("##################### \n event_id = ", event["id"])
+        
 
         tracks_z_y = event["tracks_z_y"]
         tracks_x_z = event["tracks_x_z"]
@@ -512,7 +513,6 @@ class Muon_Main_track_statistics(ModuleBase):
 
     def _process(self, event:Event):
         self.min_charge_thresh = event["min_charge_thresh"]
-
         x_fiber_hits = event["x_fiber_hits"]
         y_fiber_hits = event["y_fiber_hits"]
         track_pairs = event["track_pairs"]
@@ -782,7 +782,7 @@ class Build_ThreeD_tracks(ModuleBase):
                     ThreeD_track.add_point_to_track(ThreeD_points[i], free_line_id)
                     ThreeD_lines.append(ThreeD_track.lines[-1])
                 New_ThreeD_nodes = make_equally_spaced_nodes(ThreeD_track, track_pair, line_index_zy, line_index_xz, data_zy, data_xz)
-                ThreeD_track.nodes = New_ThreeD_nodes
+                ThreeD_track.nodes = New_ThreeD_nodes                
                 ThreeD_tracks.append(ThreeD_track)
             else:
                 p_in_zy, p_f_zy = track_z_y.get_endpoints_of_track()
@@ -971,6 +971,7 @@ class Build_ThreeD_tracks(ModuleBase):
                     ThreeD_lines.append(ThreeD_track.lines[-1])
                 New_ThreeD_nodes = make_equally_spaced_nodes(ThreeD_track, track_pair, line_index_zy, line_index_xz, data_zy, data_xz)
                 ThreeD_track.nodes = New_ThreeD_nodes
+                
                 ThreeD_tracks.append(ThreeD_track)                        
         event.add_data("ThreeD_lines", ThreeD_lines)
         event.add_data("ThreeD_tracks", ThreeD_tracks)
@@ -1169,3 +1170,136 @@ class Add_internal_nodes(ModuleBase):
     
     def _finalise(self):
         log_module_name("Add_internal_nodes", file_path="modules.txt")                
+
+def hit_indices_of_track(line_index, track):
+    return np.flatnonzero(np.isin(np.asarray(line_index), track.line_ids))
+
+def contingency(reco_label, true_label, weight):
+    r_ids, r = np.unique(reco_label, return_inverse=True)
+    t_ids, t = np.unique(true_label, return_inverse=True)
+    M = np.zeros((len(r_ids), len(t_ids)))
+    np.add.at(M, (r, t), weight)
+    return r_ids, t_ids, M
+
+def combine_contingency(parts):
+    """parts: list of (r_ids, t_ids, M), one per plane. Returns the summed matrix on the union of ids."""
+    r_all = np.unique(np.concatenate([r for r, _, _ in parts]))
+    t_all = np.unique(np.concatenate([t for _, t, _ in parts]))
+    M_all = np.zeros((len(r_all), len(t_all)))
+    for r_ids, t_ids, M in parts:
+        rows = np.searchsorted(r_all, r_ids)
+        cols = np.searchsorted(t_all, t_ids)
+        M_all[np.ix_(rows, cols)] += M
+    return r_all, t_all, M_all
+
+class Reco_eval(ModuleBase):
+    def __init__(self):
+        super().__init__()
+        self.requirements = ["track_pairs", "x_fiber_hits", "y_fiber_hits", "min_charge_thresh", "line_index_zy", "line_index_xz", "x_fiber_hits_truth", "y_fiber_hits_truth"]
+        self.min_charge_thresh = 0.
+        self.totals = {}
+        self.totals_by_type = {}
+
+    def _setup_cli_options(self, parser):
+        parser.add_argument("--eval_file", required=False, default="reco_eval", type=str,
+                            help="Name of the evaluation text file (without extension)")
+
+    def _initialise(self):
+        self.eval_file = self.args.eval_file + ".txt"
+
+    def _process(self, event:Event):
+        self.min_charge_thresh = event["min_charge_thresh"]
+        x_fiber_hits = event["x_fiber_hits"]
+        y_fiber_hits = event["y_fiber_hits"]
+        x_fiber_hits_truth = event["x_fiber_hits_truth"]
+        y_fiber_hits_truth = event["y_fiber_hits_truth"]
+        track_pairs = event["track_pairs"]
+        line_index_zy = event["line_index_zy"]
+        line_index_xz = event["line_index_xz"]
+        track_lengths = [0,0]
+        data = [0,0]
+        truth = [0,0]
+        plane_contingency_matrix = [0,0]
+
+        plane_total_edep = [0,0]
+
+        for fiber_hits, u_name, v_name, axis_index, fiber_hits_truth, line_index in zip([x_fiber_hits, y_fiber_hits], ["z", "x"], ["y", "z"], [0, 1], [x_fiber_hits_truth, y_fiber_hits_truth], [line_index_zy, line_index_xz]):
+            if not fiber_hits:
+                continue
+            mask = np.array([hit.weight > self.min_charge_thresh for hit in fiber_hits])
+            data[axis_index] = data_2D(fiber_hits, u_name, v_name, self.min_charge_thresh)
+            truth[axis_index] = fiber_hits_truth.select(mask)
+
+            line_index = np.asarray(line_index)
+            assert len(line_index) == len(data[axis_index]) == len(truth[axis_index])
+
+
+            track_index = np.full(len(line_index), -1)
+            for track_pair in track_pairs:
+                track_index[np.isin(line_index,track_pair[axis_index].line_ids)] = track_pair[axis_index].track_id
+
+            cm = ContingencyMatrix.from_labels(track_index, truth[axis_index].track_id, truth[axis_index].edep)
+            plane_contingency_matrix[axis_index] = cm
+            
+
+        parts = [c for c in plane_contingency_matrix if c is not None]
+        if parts:
+            contingency_matrix = parts[0] if len(parts) == 1 else parts[0] + parts[1]
+            c = contingency_matrix.counts()
+            for k, v in c.items():
+                self.totals[k] = self.totals.get(k, 0) + v     # self.totals = {} in __init__
+
+            pdg_of = {}
+            for tr in truth:
+                if not isinstance(tr, int):                 # skipped planes are still 0
+                    pdg_of.update({int(i): int(p) for i, p in zip(tr.track_id, tr.pdg)})
+
+            for key, d in contingency_matrix.counts_by_type(pdg_of).items():
+                acc = self.totals_by_type.setdefault(key, {})
+                for name, v in d.items():
+                    acc[name] = acc.get(name, 0) + v
+
+            # heaviest true particle: how much of it sits in its best reco track
+            col_tot = contingency_matrix.M.sum(axis=0)
+            main_true_id = int(contingency_matrix.t_ids[np.argmax(col_tot)])
+            completeness = contingency_matrix.completeness().get(main_true_id, 0.0)
+
+            # heaviest reco track: how pure is it
+            Mr, _ = contingency_matrix._real()           # rows = real reco tracks, no unassigned row
+            if Mr.size > 0 and Mr.sum() > 0:
+                heaviest = np.argmax(Mr.sum(axis=1))     # row with the most total weight
+                main_purity = Mr[heaviest].max() / Mr[heaviest].sum()
+            else:
+                main_purity = -1.0
+
+            print("\n true_main_completeness = ", completeness, "\n true_main_purity = ", main_purity, "\n true_assigned_ratio = ",  c["weight_correct"] / max(c["weight_total"], 1e-12))
+
+            c = contingency_matrix.counts()
+            event.add_data("true_main_completeness", completeness)
+            event.add_data("true_main_purity", main_purity)
+            event.add_data("true_assigned_ratio", c["weight_correct"] / max(c["weight_total"], 1e-12))
+
+    def _finalise(self):
+        t = self.totals
+        with open(self.eval_file, "w") as f:
+            if not t or t["n_true"] == 0 or t["n_reco"] == 0:
+                print("no events to evaluate", file=f)
+                return
+            print(f"efficiency         = {t['n_matched'] / t['n_true']:.3f}", file=f)
+            print(f"fake rate          = {1 - t['n_matched'] / t['n_reco']:.3f}", file=f)
+            print(f"assigned correctly = {t['weight_correct'] / t['weight_total']:.3f}", file=f)
+            print(f"\nper particle type:", file=f)
+            for key, d in sorted(self.totals_by_type.items()):
+                print(f"|pdg| = {key}: n = {d['n_true']}, "
+                        f"efficiency = {d['n_matched'] / d['n_true']:.3f}, "
+                        f"assigned = {d['weight_correct'] / max(d['weight_total'], 1e-12):.3f}", file=f)
+
+            
+        
+
+    
+
+
+                
+
+        
