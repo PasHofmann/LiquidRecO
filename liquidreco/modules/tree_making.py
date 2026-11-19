@@ -180,6 +180,12 @@ class MakeTree(ModuleBase):
         self.tree.Branch("track_nodes_z", self.track_nodes_z)
         self.tree.Branch("track_node_charges", self.track_node_charges)
 
+        self.true_main_completeness = np.zeros(1, dtype=np.float32)
+        self.tree.Branch("true_main_completeness", self.true_main_completeness, "true_main_completeness/F")
+        self.true_main_purity = np.zeros(1, dtype=np.float32)
+        self.tree.Branch("true_main_purity", self.true_main_purity, "true_main_purity/F")
+        self.true_assigned_ratio = np.zeros(1, dtype=np.float32)
+        self.tree.Branch("true_assigned_ratio", self.true_assigned_ratio, "true_assigned_ratio/F")
 
 
 
@@ -394,6 +400,12 @@ class MakeTree(ModuleBase):
                 inner = std.vector('float')()
                 self.track_node_charges.push_back(fill_vector_from_array(inner, ThreeD_track_nodes_charges, cast=float))
 
+        if "true_main_completeness" in event._data:
+            self.true_main_completeness[0] = event["true_main_completeness"]
+        if "true_main_purity" in event._data:
+            self.true_main_purity[0] = event["true_main_purity"]
+        if "true_assigned_ratio" in event._data:
+            self.true_assigned_ratio[0] = event["true_assigned_ratio"]
 
         self.tree.Fill()
 
