@@ -14,25 +14,27 @@ class EventProcessor:
     looping over them, applying fit modules specified by the user.
     """
 
-    ## Optional per-hit truth branches (written by TTreeMaker when run with -O truth)
+    ## Optional per-hit truth branches (written by TTreeMaker when run with -O truth_g4seg)
     ## maps name of the branch in the hit tree -> name of the data in the Event
     TRUTH_HIT_BRANCHES: typing.Dict[str, str] = {
-        "true_ntracks":    "raw_true_n_tracks",   ## number of true tracks contributing to the hit
-        "true_track_id":   "raw_true_track_ids",  ## id of the main contributing track (most deposited energy)
-        "true_parent_id":  "raw_true_parent_ids", ## id of the parent of the main track
-        "true_primary_id": "raw_true_primary_ids",## id of the primary particle the main track descends from
-        "true_pdg":        "raw_true_pdgs",       ## PDG code of the main track
-        "true_edep":       "raw_true_edeps",      ## energy deposited in the hit by the main track
-        "true_start":      "raw_true_starts",     ## start point of the main track, shape [nHits, 4] (x, y, z, t)
-        "true_end":        "raw_true_ends",       ## end point of the main track, shape [nHits, 4] (x, y, z, t)
-        "true_track_ids":  "raw_true_all_track_ids", ## ids of *all* contributing tracks (variable length per hit)
-        "true_edeps":      "raw_true_all_edeps",     ## energy deposited by each of those tracks (variable length per hit)
+        "true_nsegs":      "raw_true_n_segs",     ## number of true G4 segments contributing to the hit
+        "true_ntrajs":     "raw_true_n_trajs",    ## number of distinct true trajectories contributing to the hit
+        "true_edep":       "raw_true_edeps",      ## total true energy deposited in the hit (sum over segments)
     }
 
-    ## Optional tree with one entry per true trajectory (written by TTreeMaker when run with -O truth)
+    ## Optional per-hit true G4 segment branches (written by TTreeMaker when run with -O truth_g4seg)
+    ## each holds a variable length vector per hit, one entry per segment
+    SEGMENT_BRANCHES: typing.List[str] = [
+        "true_seg_start_x", "true_seg_start_y", "true_seg_start_z", "true_seg_start_t",
+        "true_seg_stop_x", "true_seg_stop_y", "true_seg_stop_z", "true_seg_stop_t",
+        "true_seg_edep", "true_seg_length", "true_seg_primary_id",
+        "true_seg_ncontrib", "true_seg_contrib_ids",
+    ]
+
+    ## Optional tree with one entry per true trajectory (written by TTreeMaker when run with -O truth_traj)
     TRAJECTORY_TREE_NAME: str = "trajectories"
     TRAJECTORY_BRANCHES: typing.List[str] = [
-        "track_id", "parent_id", "primary_id", "pdg", "start", "end", "mom"
+        "traj_id", "parent_id", "primary_id", "pdg", "start", "end", "mom"
     ]
 
     def __init__(
@@ -84,6 +86,13 @@ class EventProcessor:
                 if branch_name in available_branches:
                     self._truth[data_name] = hit_tree[branch_name].array(library="np")
 
+            ## get the true G4 segments of the hits, if the tree has them
+            ## (object arrays, one variable length array per hit)
+            self._segments: typing.Dict[str, np.ndarray] = {}
+            if all(branch_name in available_branches for branch_name in self.SEGMENT_BRANCHES):
+                for branch_name in self.SEGMENT_BRANCHES:
+                    self._segments[branch_name] = hit_tree[branch_name].array(library="np")
+
             ## get the true trajectories, if the file has them
             self._trajectories: typing.Dict[str, np.ndarray] = {}
             self._trajectory_event_ids: np.ndarray = None
@@ -92,6 +101,67 @@ class EventProcessor:
                 self._trajectory_event_ids = trajectory_tree["event"].array(library="np")
                 for branch_name in self.TRAJECTORY_BRANCHES:
                     self._trajectories[branch_name] = trajectory_tree[branch_name].array(library="np")
+
+    def _add_segments(self, event: Event, hit_positions: np.ndarray) -> None:
+        """Add the true G4 segments of the hits of one event to the event
+
+        Adds the following, each an object array with one entry per hit, where each
+        entry holds one value per G4 segment of that hit:
+
+        - raw_true_seg_starts:       segment start points, each of shape [nSegs, 4] (x, y, z, t)
+        - raw_true_seg_stops:        segment stop points, each of shape [nSegs, 4] (x, y, z, t)
+        - raw_true_seg_edeps:        energy deposited by each segment, each of shape [nSegs]
+        - raw_true_seg_lengths:      length of each segment, each of shape [nSegs]
+        - raw_true_seg_primary_ids:  id of the primary particle of each segment, each of shape [nSegs]
+        - raw_true_seg_contrib_ids:  for each segment, the ids of all the trajectories that contributed to it
+                                     (a list of nSegs arrays, since a segment can combine several trajectories)
+
+        The contributor ids are the G4 trajectory ids, they can be traced back with the
+        true_trajectories (traj_id column) if the input file has the trajectories tree.
+
+        :param event: the event to add the segments to
+        :type event: Event
+        :param hit_positions: positions in the input arrays of the hits that belong to this event
+        :type hit_positions: np.ndarray
+        """
+
+        segs = {name: values[hit_positions] for name, values in self._segments.items()}
+        n_hits = len(hit_positions)
+
+        def per_hit(values) -> np.ndarray:
+            ## make an object array so that numpy doesn't try to merge the per-hit arrays
+            ret = np.empty(n_hits, dtype=object)
+            for i, v in enumerate(values):
+                ret[i] = v
+            return ret
+
+        def points(prefix: str) -> np.ndarray:
+            return per_hit(
+                np.stack(
+                    [
+                        np.asarray(segs[f"{prefix}_{coord}"][i], dtype=float).reshape(-1)
+                        for coord in ("x", "y", "z", "t")
+                    ],
+                    axis=1
+                )
+                for i in range(n_hits)
+            )
+
+        event.add_data("raw_true_seg_starts", points("true_seg_start"))
+        event.add_data("raw_true_seg_stops", points("true_seg_stop"))
+        event.add_data("raw_true_seg_edeps", per_hit(np.asarray(v) for v in segs["true_seg_edep"]))
+        event.add_data("raw_true_seg_lengths", per_hit(np.asarray(v) for v in segs["true_seg_length"]))
+        event.add_data("raw_true_seg_primary_ids", per_hit(np.asarray(v) for v in segs["true_seg_primary_id"]))
+
+        ## the contributor ids are stored concatenated for all segments of a hit,
+        ## split them back up using the number of contributors of each segment
+        event.add_data(
+            "raw_true_seg_contrib_ids",
+            per_hit(
+                np.split(np.asarray(ids), np.cumsum(n_contrib)[:-1]) if len(n_contrib) > 0 else []
+                for ids, n_contrib in zip(segs["true_seg_contrib_ids"], segs["true_seg_ncontrib"])
+            )
+        )
 
     def event_loop(self) -> None:
         """Does the loop over all events, applying each specified module to them
@@ -130,8 +200,12 @@ class EventProcessor:
             for data_name, truth_values in self._truth.items():
                 event.add_data(data_name, truth_values[event_array_positions, ...])
 
+            ## add the true G4 segments of the hits (only present if they were in the input file)
+            if self._segments:
+                self._add_segments(event, event_array_positions)
+
             ## add the true trajectories of this event (only present if they were in the input file)
-            ## dict of arrays with one entry per trajectory: track_id, parent_id, primary_id, pdg, start, end, mom
+            ## dict of arrays with one entry per trajectory: traj_id, parent_id, primary_id, pdg, start, end, mom
             if self._trajectory_event_ids is not None:
                 event_trajectory_positions = np.where(self._trajectory_event_ids == event_id)[0]
                 event.add_data(
