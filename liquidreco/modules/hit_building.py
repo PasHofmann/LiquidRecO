@@ -6,6 +6,7 @@ from liquidreco.modules.module_base import ModuleBase
 from liquidreco.event import Event
 from liquidreco.hit import Hit, Hit2D, Hit3D
 from liquidreco.geometry import GeometryManager
+from liquidreco.Truth import HitTruth
 
 from liquidreco.save_used_modules import log_module_name
 
@@ -123,6 +124,85 @@ class HitBuilder2D(ModuleBase):
         event.add_data("x_fiber_hits", x_fiber_hits)
         event.add_data("y_fiber_hits", y_fiber_hits)
         event.add_data("z_fiber_hits", z_fiber_hits)
+
+        if "raw_true_track_ids" in event.get_keys():
+            raw_true_track_ids = event["raw_true_track_ids"]
+            raw_true_primary_ids = event["raw_true_primary_ids"]
+            raw_true_parent_ids = event["raw_true_parent_ids"]
+            raw_true_pdgs = event["raw_true_pdgs"]
+            raw_true_edeps = event["raw_true_edeps"]
+            raw_true_n_tracks = event["raw_true_n_tracks"]
+            raw_true_all_track_ids = event["raw_true_all_track_ids"]
+            raw_true_all_edeps = event["raw_true_all_edeps"]
+
+            x_true_track_ids = raw_true_track_ids[x_hit_ids]
+            y_true_track_ids = raw_true_track_ids[y_hit_ids]
+            z_true_track_ids = raw_true_track_ids[z_hit_ids]
+
+            x_true_primary_ids = raw_true_primary_ids[x_hit_ids]
+            y_true_primary_ids = raw_true_primary_ids[y_hit_ids]
+            z_true_primary_ids = raw_true_primary_ids[z_hit_ids]
+
+            x_true_parent_ids = raw_true_parent_ids[x_hit_ids]
+            y_true_parent_ids = raw_true_parent_ids[y_hit_ids]
+            z_true_parent_ids = raw_true_parent_ids[z_hit_ids]
+
+            x_true_pdgs = raw_true_pdgs[x_hit_ids]
+            y_true_pdgs = raw_true_pdgs[y_hit_ids]
+            z_true_pdgs = raw_true_pdgs[z_hit_ids]
+
+            x_true_edeps = raw_true_edeps[x_hit_ids]
+            y_true_edeps = raw_true_edeps[y_hit_ids]
+            z_true_edeps = raw_true_edeps[z_hit_ids]
+
+            x_true_n_tracks = raw_true_n_tracks[x_hit_ids]
+            y_true_n_tracks = raw_true_n_tracks[y_hit_ids]
+            z_true_n_tracks = raw_true_n_tracks[z_hit_ids]
+
+            x_true_all_track_ids = raw_true_all_track_ids[x_hit_ids]
+            y_true_all_track_ids = raw_true_all_track_ids[y_hit_ids]
+            z_true_all_track_ids = raw_true_all_track_ids[z_hit_ids]
+
+            x_true_all_edeps = raw_true_all_edeps[x_hit_ids]
+            y_true_all_edeps = raw_true_all_edeps[y_hit_ids]
+            z_true_all_edeps = raw_true_all_edeps[z_hit_ids]
+
+            x_fiber_hits_truth = HitTruth(x_true_track_ids, x_true_primary_ids, x_true_parent_ids, x_true_pdgs, x_true_edeps, x_true_n_tracks, x_true_all_track_ids, x_true_all_edeps)
+            y_fiber_hits_truth = HitTruth(y_true_track_ids, y_true_primary_ids, y_true_parent_ids, y_true_pdgs, y_true_edeps, y_true_n_tracks, y_true_all_track_ids, y_true_all_edeps)
+            z_fiber_hits_truth = HitTruth(z_true_track_ids, z_true_primary_ids, z_true_parent_ids, z_true_pdgs, z_true_edeps, z_true_n_tracks, z_true_all_track_ids, z_true_all_edeps)
+
+            event.add_data("x_fiber_hits_truth", x_fiber_hits_truth)
+            event.add_data("y_fiber_hits_truth", y_fiber_hits_truth)
+            event.add_data("z_fiber_hits_truth", z_fiber_hits_truth)
+            """ Test on truth information quality
+            for name, hit_ids, hits, truth in (
+                ("x", x_hit_ids, x_fiber_hits, x_fiber_hits_truth),
+                ("y", y_hit_ids, y_fiber_hits, y_fiber_hits_truth),
+                ("z", z_hit_ids, z_fiber_hits, z_fiber_hits_truth),
+            ):
+                # 1. same length as the hits
+                print(f"\n[{name}] hits = {len(hits)}, truth = {len(truth.track_id)}")
+                assert len(hits) == len(truth.track_id)
+
+                # 2. alignment with the raw arrays
+                ok = all(
+                    truth.track_id[i] == int(raw_true_track_ids[hit_ids[i]])
+                    and truth.edep[i] == float(raw_true_edeps[hit_ids[i]])
+                    for i in range(len(hits))
+                )
+                print(f"[{name}] aligned with raw truth: {ok}")
+
+                # 3. first hits side by side (weight should be sensible next to edep)
+                for i in range(min(5, len(hits))):
+                    print(f"[{name}] hit {i}: weight = {hits[i].weight:.3f}, "
+                            f"track_id = {truth.track_id[i]}, primary_id = {truth.primary_id[i]}, "
+                            f"pdg = {truth.pdg[i]}, edep = {truth.edep[i]:.3f}, n_tracks = {truth.n_tracks[i]}")
+
+                # 4. overview
+                print(f"[{name}] distinct track_ids = {sorted(set(truth.track_id))}")
+                print(f"[{name}] clean hits (n_tracks == 1): {np.mean(np.array(truth.n_tracks) == 1):.2%}")
+            """
+
 
     def _finalise(self):
         log_module_name("HitBuilder2D", file_path="modules.txt")
