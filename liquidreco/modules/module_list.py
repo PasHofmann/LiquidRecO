@@ -14,7 +14,7 @@ from liquidreco.modules.Track_finding import CutLines, Refit_lines, Find_simple_
 from liquidreco.modules.tree_making import MakeTree
 from liquidreco.modules.plot_HoughSpace import HoughTransformPlot
 from liquidreco.modules.ThreeD_Matching import ThreeDMatching
-from liquidreco.modules.Soft_ThreeD_Matching import Find_candidate_tracks, SoftThreeDMatching, Muon_Main_track_statistics, Build_ThreeD_tracks, Add_internal_nodes
+from liquidreco.modules.Soft_ThreeD_Matching import Find_candidate_tracks, SoftThreeDMatching, Muon_Main_track_statistics, Build_ThreeD_tracks, Add_internal_nodes, Reco_eval
 
     
 class ModuleList(metaclass=Singleton):
@@ -118,3 +118,4 @@ ModuleList().register(HitPlotter3D)
 ModuleList().register(MakeTree)
 ##Statistics
 ModuleList().register(Muon_Main_track_statistics)
+ModuleList().register(Reco_eval)
