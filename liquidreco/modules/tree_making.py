@@ -35,7 +35,19 @@ def data_2D(fiber_hits, u_name, v_name, min_charge_thresh): #takes the fiber hit
     
     return np.array([[getattr(hit, u_name), getattr(hit, v_name), hit.weight, hit.time] for hit in fiber_hits if hit.weight> min_charge_thresh]) 
 
-
+def collect_unique_segments(event):
+    """All true G4 segments of the event as an array [nSegs, 8]:
+    (start_x, start_y, start_z, stop_x, stop_y, stop_z, primary_id, edep).
+    Segments shared by several hits are only kept once."""
+    rows = []
+    for st, sp, pr, ed in zip(event["raw_true_seg_starts"], event["raw_true_seg_stops"],
+                              event["raw_true_seg_primary_ids"], event["raw_true_seg_edeps"]):
+        if len(st) == 0:
+            continue
+        rows.append(np.column_stack([st[:, :3], sp[:, :3], pr, ed]))
+    if not rows:
+        return np.empty((0, 8))
+    return np.unique(np.concatenate(rows), axis=0)
 
 class MakeTree(ModuleBase):
     """
@@ -187,7 +199,13 @@ class MakeTree(ModuleBase):
         self.true_assigned_ratio = np.zeros(1, dtype=np.float32)
         self.tree.Branch("true_assigned_ratio", self.true_assigned_ratio, "true_assigned_ratio/F")
 
-
+        self.seg_vectors = {}
+        for name, vtype in [("start_x", "float"), ("start_y", "float"), ("start_z", "float"),
+                            ("stop_x", "float"),  ("stop_y", "float"),  ("stop_z", "float"),
+                            ("primary_id", "int"), ("edep", "float")]:
+            vec = std.vector(vtype)()
+            self.seg_vectors[name] = vec
+            self.tree.Branch("true_seg_" + name, vec)
 
     def _process(self, event:Event):
         self.event_id[0] = event["id"]
@@ -249,6 +267,9 @@ class MakeTree(ModuleBase):
         self.track_nodes_y.clear()
         self.track_nodes_z.clear()
         self.track_node_charges.clear()
+
+        for vec in self.seg_vectors.values():
+            vec.clear()
 
 
         #zy plot
@@ -406,6 +427,12 @@ class MakeTree(ModuleBase):
             self.true_main_purity[0] = event["true_main_purity"]
         if "true_assigned_ratio" in event._data:
             self.true_assigned_ratio[0] = event["true_assigned_ratio"]
+
+        if "raw_true_seg_starts" in event._data:
+            segs = collect_unique_segments(event)
+            for k, (name, vec) in enumerate(self.seg_vectors.items()):
+                cast = int if name == "primary_id" else float
+                fill_vector_from_array(vec, segs[:, k], cast=cast)
 
         self.tree.Fill()
 

@@ -3,28 +3,76 @@ from math import comb
 from scipy.optimize import linear_sum_assignment
 
 class HitTruth:
-    """Truth information of one list of hits, same order as the hits. All fields are numpy arrays."""
+    """Truth information of one list of hits, same order as the hits.
 
-    def __init__(self, track_id, primary_id, parent_id, pdg, edep, n_tracks, all_track_ids, all_edeps):
-        self.track_id = np.asarray(track_id, dtype=int)
-        self.primary_id = np.asarray(primary_id, dtype=int)
-        self.parent_id = np.asarray(parent_id, dtype=int)
-        self.pdg = np.asarray(pdg, dtype=int)
+    Per-hit scalars are numpy arrays. The segment fields are object arrays with one
+    entry per hit, each entry holding one value per G4 segment of that hit (or None
+    if the input file had no segment truth).
+    """
+
+    NO_PARTICLE = -1   # label for hits without any segment
+
+    def __init__(self, n_segs, n_trajs, edep,
+                 seg_starts=None, seg_stops=None, seg_edeps=None,
+                 seg_lengths=None, seg_primary_ids=None, seg_contrib_ids=None):
+        self.n_segs = np.asarray(n_segs, dtype=int)
+        self.n_trajs = np.asarray(n_trajs, dtype=int)
         self.edep = np.asarray(edep, dtype=float)
-        self.n_tracks = np.asarray(n_tracks, dtype=int)
-        self.all_track_ids = all_track_ids   # jagged, kept as it comes from the raw array
-        self.all_edeps = all_edeps
+
+        self.seg_starts = seg_starts            # per hit: [nSegs, 4]
+        self.seg_stops = seg_stops              # per hit: [nSegs, 4]
+        self.seg_edeps = seg_edeps              # per hit: [nSegs]
+        self.seg_lengths = seg_lengths          # per hit: [nSegs]
+        self.seg_primary_ids = seg_primary_ids  # per hit: [nSegs]
+        self.seg_contrib_ids = seg_contrib_ids  # per hit: list of nSegs arrays
 
     def __len__(self):
-        return len(self.track_id)
+        return len(self.edep)
+
+    @property
+    def has_segments(self):
+        return self.seg_edeps is not None
 
     def select(self, mask):
+        def sel(a):
+            return None if a is None else a[mask]
         return HitTruth(
-            self.track_id[mask], self.primary_id[mask], self.parent_id[mask],
-            self.pdg[mask], self.edep[mask], self.n_tracks[mask],
-            self.all_track_ids[mask], self.all_edeps[mask],
+            self.n_segs[mask], self.n_trajs[mask], self.edep[mask],
+            sel(self.seg_starts), sel(self.seg_stops), sel(self.seg_edeps),
+            sel(self.seg_lengths), sel(self.seg_primary_ids), sel(self.seg_contrib_ids),
         )
 
+    # ---------- derived quantities (replace the old "main track" fields) ----------
+    def edep_by_primary(self):
+        """Per hit: (primary_ids, edeps), energy summed over all segments of each primary."""
+        assert self.has_segments, "no segment truth in this file"
+        out = []
+        for prim, edep in zip(self.seg_primary_ids, self.seg_edeps):
+            if len(prim) == 0:
+                out.append((np.empty(0, dtype=int), np.empty(0)))
+                continue
+            ids, inv = np.unique(prim, return_inverse=True)
+            sums = np.zeros(len(ids))
+            np.add.at(sums, inv, edep)
+            out.append((ids, sums))
+        return out
+
+    @property
+    def main_primary_id(self):
+        """Primary with the most deposited energy in each hit (-1 if the hit has no segments).
+        Equivalent to the old primary_id."""
+        return np.array([
+            ids[np.argmax(e)] if len(ids) else self.NO_PARTICLE
+            for ids, e in self.edep_by_primary()
+        ], dtype=int)
+
+    @property
+    def main_primary_fraction(self):
+        """Fraction of the hit's energy that comes from its main primary."""
+        return np.array([
+            e.max() / e.sum() if len(e) and e.sum() > 0 else 0.0
+            for _, e in self.edep_by_primary()
+        ])
 
 
 class ContingencyMatrix:

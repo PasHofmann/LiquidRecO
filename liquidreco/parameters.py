@@ -114,7 +114,7 @@ turning_point_matches_sigma_z = 5
 turning_point_matches_unmatched_penalty = .5
 
 #ModuleBase
-ModuleBase_SelectedEvents = []
+ModuleBase_SelectedEvents = [3, 4, 5, 9]
 
 #Add_internal_nodes
 define_node_hit_regions_average_node_hit_number = 6.
